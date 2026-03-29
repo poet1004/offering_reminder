@@ -1,0 +1,4 @@
+﻿signal_name,term,reason,symbol,name,unlock_date,prev_close_vs_ipo,threshold
+inst_1m_2.0x_reclaim_open_or_vwap,1M,threshold_not_reached_or_filter_failed,480050,퀀텀로보틱스,2026-03-20,1.05,2.0
+inst_6m_2.0x_range_top40,6M,threshold_not_reached_or_filter_failed,480080,스마트그리드솔루션,2026-03-22,0.94,2.0
+inst_15d_1.0x_reclaim_open_or_vwap,15D,bars_missing,480020,에이아이센서,2026-04-18,,1.0

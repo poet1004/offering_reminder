@@ -1,0 +1,6 @@
+﻿strategy_name,signal_name,term,trades,avg_ret,avg_bench_ret,beta_proxy,corr,alpha_proxy
+turnover_unlock,inst_15d_1.0x_reclaim_open_or_vwap,15D,1,0.0456187845303867,0.009,0.75,0.25,0.0388687845303867
+turnover_unlock,inst_15d_2.0x_reclaim_open_or_vwap,15D,1,-0.026887079261672105,0.009,0.75,0.25,-0.0336370792616721
+turnover_unlock,inst_1m_1.0x_reclaim_open,1M,1,-0.02151851851851849,-0.004,0.75,0.25,-0.01851851851851849
+turnover_unlock,inst_1m_1.0x_reclaim_open_or_vwap,1M,1,0.04872413793103447,0.021,0.75,0.25,0.03297413793103447
+turnover_unlock,inst_6m_1.0x_range_top40,6M,1,-0.03226078028747437,-0.011,0.75,0.25,-0.024010780287474366

@@ -1,0 +1,18 @@
+{
+  "costs": {
+    "buy_cost": 0.00015,
+    "sell_cost": 0.00215
+  },
+  "hold_days_by_term": {
+    "15D": 5,
+    "1M": 21,
+    "3M": 32,
+    "6M": 63,
+    "1Y": 126,
+    "2Y": 252
+  },
+  "filters": {
+    "min_prev_close_vs_ipo": null,
+    "max_prev_close_vs_ipo": null
+  }
+}

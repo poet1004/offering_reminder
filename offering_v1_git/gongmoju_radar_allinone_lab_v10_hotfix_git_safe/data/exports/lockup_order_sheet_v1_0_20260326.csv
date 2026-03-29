@@ -1,0 +1,4 @@
+﻿strategy_version,decision,priority_tier,symbol,name,market,unlock_date,planned_check_date,planned_entry_date,planned_exit_date,entry_rule,term,hold_days_after_entry,suggested_weight_pct_of_base,current_vs_offer_pct,technical_signal,combined_score,conviction_score,memo
+1.0,우선검토,A,480050,퀀텀로보틱스,코스피,2026-05-19,2026-05-18,2026-05-19,2026-07-02,해제일 종가,3M,32.0,100,10.62,상승추세,54.12,81.1,"3M 해제 전략 기준 우선검토 (81.1점) · 백테스트 compound 114.70% · 강점: 해당 term 히스토리컬 우위, 승률 양호, 공모가 배수 필터 충족 · 리스크: 기존주주 비율 높음"
+1.0,우선검토,A,480040,그린모빌리티,코스닥,2026-06-10,2026-06-09,2026-06-10,2026-07-24,해제일 종가,3M,32.0,100,19.0,상승추세,53.75,77.8,"3M 해제 전략 기준 우선검토 (77.8점) · 백테스트 compound 114.70% · 강점: 해당 term 히스토리컬 우위, 승률 양호, 공모가 배수 필터 충족"
+1.0,관찰강화,A,480060,오션데이터,코스닥,2026-04-29,2026-04-28,2026-04-29,2026-06-12,해제일 종가,3M,32.0,100,-12.55,약세추세,39.77,38.8,"3M 해제 전략 기준 관찰강화 (38.8점) · 백테스트 compound 114.70% · 강점: 해당 term 히스토리컬 우위, 승률 양호, 기존주주 비율 양호 · 리스크: 백테스트 진입배수 미달, 기술 약세"

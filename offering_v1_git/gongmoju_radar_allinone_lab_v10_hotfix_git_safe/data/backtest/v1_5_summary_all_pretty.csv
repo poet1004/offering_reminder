@@ -1,0 +1,6 @@
+﻿strategy_name,term,entry_mode,hold_days_after_entry,trades,win_rate,avg_ret,median_ret,sum_ret,compound_ret,min_ret,max_ret
+1Y_close_midhold,1Y,close,126,14,64.29,14.24,7.87,199.42,148.01,-48.82,141.04
+6M_close_midhold,6M,close,63,34,41.18,6.42,-6.67,218.23,-32.98,-49.09,161.6
+3M_close_midhold,3M,close,32,35,51.43,5.94,0.59,207.82,98.6,-42.13,81.81
+15D_close_midhold,15D,close,5,60,40.0,-3.33,-6.21,-199.53,-93.26,-33.09,38.4
+1M_close_midhold,1M,close,21,47,38.3,-3.5,-4.43,-164.73,-95.72,-42.34,73.61

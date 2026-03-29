@@ -1,0 +1,4 @@
+﻿signal_name,term,reason,count
+inst_15d_1.0x_reclaim_open_or_vwap,15D,bars_missing,1
+inst_1m_2.0x_reclaim_open_or_vwap,1M,threshold_not_reached_or_filter_failed,1
+inst_6m_2.0x_range_top40,6M,threshold_not_reached_or_filter_failed,1

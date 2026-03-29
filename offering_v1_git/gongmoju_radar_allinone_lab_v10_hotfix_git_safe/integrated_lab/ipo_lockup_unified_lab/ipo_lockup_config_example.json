@@ -1,0 +1,69 @@
+{
+  "universe": {
+    "start_date": "20200101",
+    "terms": [
+      "15D",
+      "1M",
+      "3M",
+      "6M",
+      "1Y"
+    ],
+    "exclude_spac": true,
+    "exclude_preferred": true,
+    "post_regime_change_only": true,
+    "regime_change_date": "2023-06-26",
+    "ipo_start_page": 1,
+    "ipo_end_page": 30,
+    "fetch_38_detail_pages": false,
+    "use_cache_kind": true,
+    "use_cache_ipo": true,
+    "local_kind_master_file": null,
+    "require_ipo_price_for_dataset": false
+  },
+  "costs": {
+    "buy_cost": 0.00015,
+    "sell_cost": 0.00215
+  },
+  "strategies": [
+    {
+      "name": "15D_close_midhold",
+      "term": "15D",
+      "entry_mode": "close",
+      "days_after_unlock": 0,
+      "hold_days_after_entry": 5,
+      "min_prev_close_vs_ipo": null
+    },
+    {
+      "name": "1M_close_midhold",
+      "term": "1M",
+      "entry_mode": "close",
+      "days_after_unlock": 0,
+      "hold_days_after_entry": 21,
+      "min_prev_close_vs_ipo": null
+    },
+    {
+      "name": "3M_close_midhold",
+      "term": "3M",
+      "entry_mode": "close",
+      "days_after_unlock": 0,
+      "hold_days_after_entry": 32,
+      "min_prev_close_vs_ipo": null
+    },
+    {
+      "name": "6M_close_midhold",
+      "term": "6M",
+      "entry_mode": "close",
+      "days_after_unlock": 0,
+      "hold_days_after_entry": 63,
+      "min_prev_close_vs_ipo": null
+    },
+    {
+      "name": "1Y_close_midhold",
+      "term": "1Y",
+      "entry_mode": "close",
+      "days_after_unlock": 0,
+      "hold_days_after_entry": 126,
+      "min_prev_close_vs_ipo": null
+    }
+  ]
+}

@@ -1,0 +1,8 @@
+﻿symbol,name,listing_date,unlock_date,term,ipo_price,market,lead_manager,listed_shares,ipo_price_source,unlock_type,holder_group,holder_name,relation,unlock_shares,unlock_ratio,lockup_end_date,source_report_nm,source_rcept_no,source_section,parse_confidence,note
+480060,오션데이터,2026-01-29,2026-02-28,1M,11000,코스닥,삼성증권,10000000,sample_master,inst_1m,기관,D Macro,기관투자자,380000,3.8,2026-02-28,투자설명서,20260220000007,의무보유확약,high,sample workspace historical
+480050,퀀텀로보틱스,2026-02-18,2026-03-20,1M,32000,코스피,KB증권,10000000,sample_master,inst_1m,기관,A Growth Fund,기관투자자,820000,8.2,2026-03-20,투자설명서,20260318000001,의무보유확약,high,sample workspace historical
+480080,스마트그리드솔루션,2025-09-23,2026-03-22,6M,21000,코스피,신한투자증권,10000000,sample_master,inst_6m,기관,C Ventures,기관투자자,1200000,12.0,2026-03-22,증권신고서,20250920000003,의무보유확약,mid,sample workspace historical miss
+480040,그린모빌리티,2026-03-12,2026-03-27,15D,15000,코스닥,NH투자증권,10000000,sample_master,inst_15d,기관,B Partners,기관투자자,450000,4.5,2026-03-27,증권신고서,20260325000002,의무보유확약,high,sample workspace historical
+480030,클라우드엣지,2026-03-31,2026-04-15,15D,13500,코스닥,한국투자증권,10000000,sample_master,inst_15d,기관,E Asset,기관투자자,500000,5.0,2026-04-15,증권신고서,20260328000005,의무보유확약,high,future queued job
+480020,에이아이센서,2026-04-03,2026-04-18,15D,16000,코스닥,미래에셋증권,10000000,sample_master,inst_15d,기관,D Capital,기관투자자,400000,4.0,2026-04-18,투자설명서,20260401000004,의무보유확약,high,future queued job
+480010,뉴웨이브바이오,2026-04-08,2026-04-23,15D,20000,코스닥,KB증권,10000000,sample_master,inst_15d,기관,F PE,기관투자자,350000,3.5,2026-04-23,투자설명서,20260402000006,의무보유확약,mid,future queued job

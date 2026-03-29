@@ -1,0 +1,36 @@
+# Local secrets
+.env.local
+.env.real
+.env.practice
+.streamlit/secrets.toml
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+integrated_lab/ipo_lockup_unified_lab/__pycache__/
+
+# App/runtime outputs
+integrated_lab/ipo_lockup_unified_lab/workspace/cache_kis/
+integrated_lab/ipo_lockup_unified_lab/workspace/cache_dart/
+integrated_lab/ipo_lockup_unified_lab/workspace/logs/
+data/cache/
+data/runtime/
+
+# Optional heavy files
+integrated_lab/ipo_lockup_unified_lab/workspace/cache_minute/
+integrated_lab/ipo_lockup_unified_lab/workspace/minute_db/
+*.db
+
+# Integrated lab secrets
+integrated_lab/ipo_lockup_unified_lab/real_key.txt
+integrated_lab/ipo_lockup_unified_lab/practice_key.txt
+integrated_lab/ipo_lockup_unified_lab/dart_key.txt
+integrated_lab/ipo_lockup_unified_lab/token.dat
+
+# Uploads and local artifacts
+data/uploads/
+
+integrated_lab/ipo_lockup_unified_lab/kind_local_parse_debug.csv
+integrated_lab/ipo_lockup_unified_lab/workspace/seed_export_report.json

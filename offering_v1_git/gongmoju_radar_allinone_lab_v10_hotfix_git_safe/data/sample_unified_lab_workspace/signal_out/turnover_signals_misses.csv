@@ -1,0 +1,5 @@
+﻿symbol,name,unlock_date,term,unlock_label,multiple,price_filter,reason,max_cum_volume,unlock_shares
+480050,퀀텀로보틱스,2026-03-20,1M,inst_1m,2.0,reclaim_open_or_vwap,threshold_not_reached_or_filter_failed,1450000,820000
+480080,스마트그리드솔루션,2026-03-22,6M,inst_6m,2.0,range_top40,threshold_not_reached_or_filter_failed,1520000,1200000
+480030,클라우드엣지,2026-04-15,15D,inst_15d,1.0,reclaim_open_or_vwap,bars_missing,0,500000
+480020,에이아이센서,2026-04-18,15D,inst_15d,1.0,reclaim_open_or_vwap,bars_missing,0,400000
