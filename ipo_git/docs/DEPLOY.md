@@ -10,7 +10,7 @@
 ## Streamlit Community Cloud
 - Repository: GitHub 저장소
 - Branch: `main`
-- Main file path: `app.py`
+- Main file path: `ipo_git/app.py` (저장소 루트에 `ipo_git` 폴더째 올리는 기준)
 - Secrets: `.streamlit/secrets.toml` 내용을 Cloud Secrets에 입력
 - `requirements.txt` 기준으로 배포
 

@@ -1,6 +1,12 @@
 # 공모주 알리미
 
-공모주 일정, 상장 종목, 보호예수 해제, 실험실 기능까지 한곳에서 보는 Streamlit 앱입니다.
+공모주 일정, 상장 종목, 보호예수 해제, 전략 연구, 쇼츠 자산 생성을 한곳에서 보는 Streamlit 앱입니다.
+
+## 배포 경로
+
+- GitHub/Streamlit 기준 폴더명은 **ipo_git**으로 고정했습니다.
+- Streamlit Community Cloud의 메인 파일 경로는 **`ipo_git/app.py`** 로 맞추면 됩니다.
+- 같은 경로를 계속 유지하려면 다음 배포부터도 저장소 안의 `ipo_git` 폴더만 교체하세요.
 
 ## 빠른 실행
 
@@ -19,9 +25,9 @@
 - 데이터 / 설정
 
 ## GitHub에 올릴 때
-- 공개 저장소에는 `offering_v*_git.zip` 기준 파일만 사용하세요.
+- 공개 저장소에는 `ipo_git.zip` 기준 파일만 사용하세요.
 - 로컬 저장소 폴더에서는 `.git` 폴더만 남기고 나머지를 새 버전 파일로 교체한 뒤 커밋/푸시하면 됩니다.
-- Streamlit Community Cloud 메인 파일 경로는 `app.py` 입니다.
+- Streamlit Community Cloud 메인 파일 경로는 `ipo_git/app.py` 입니다.
 
 ## 문서
 - `docs/DEPLOY.md`

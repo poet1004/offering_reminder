@@ -97,6 +97,26 @@ def env_loader_fixture_test() -> None:
             os.environ.pop("DART_API_KEY", None)
 
 
+def bootstrap_cache_seed_fixture_test() -> None:
+    from src.services.live_cache import LiveCacheStore
+
+    with TemporaryDirectory() as tmpdir:
+        data_dir = Path(tmpdir) / "data"
+        bootstrap_dir = data_dir / "bootstrap_cache"
+        bootstrap_dir.mkdir(parents=True, exist_ok=True)
+        df = pd.DataFrame([
+            {"name": "테스트지수", "ticker": "TST", "last": 100.0, "change_pct": 1.23, "provider": "bootstrap"},
+        ])
+        df.to_csv(bootstrap_dir / "market_snapshot_last_success.csv", index=False, encoding="utf-8-sig")
+        (bootstrap_dir / "market_snapshot_last_success.meta.json").write_text('{"source": "bootstrap", "row_count": 1}', encoding="utf-8")
+
+        store = LiveCacheStore(data_dir / "cache")
+        loaded = store.read_frame("market_snapshot_last_success")
+        assert not loaded.empty
+        assert loaded.loc[0, "name"] == "테스트지수"
+        assert (data_dir / "cache" / "market_snapshot_last_success.csv").exists()
+
+
 def empty_score_frame_fixture_test() -> None:
     from src.services.scoring import IPOScorer
 
@@ -718,6 +738,7 @@ def main() -> None:
 
     parser_fixture_test()
     env_loader_fixture_test()
+    bootstrap_cache_seed_fixture_test()
     empty_score_frame_fixture_test()
     date_parser_fixture_test()
     safe_bool_fixture_test()

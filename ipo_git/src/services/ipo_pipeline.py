@@ -206,30 +206,55 @@ class IPODataHub:
             try:
                 live_kind = clean_issue_frame(standardize_kind_listing_table(fetch_kind_listing_table()))
                 raw_tables["live_kind"] = live_kind
+                self.cache.write_frame(
+                    "kind_listing_live",
+                    live_kind,
+                    meta={"source": "KIND", "notes": KIND_LISTING_URL, "row_count": int(len(live_kind))},
+                )
                 source_rows.append({"source": "KIND-live-listing", "ok": True, "rows": int(len(live_kind)), "detail": KIND_LISTING_URL})
             except Exception as exc:
                 source_rows.append({"source": "KIND-live-listing", "ok": False, "rows": 0, "detail": str(exc)})
             try:
                 live_kind_public = clean_issue_frame(standardize_kind_public_offering_table(fetch_kind_public_offering_table()))
                 raw_tables["live_kind_public"] = live_kind_public
+                self.cache.write_frame(
+                    "kind_public_offering_live",
+                    live_kind_public,
+                    meta={"source": "KIND", "notes": KIND_PUBLIC_OFFER_URL, "row_count": int(len(live_kind_public))},
+                )
                 source_rows.append({"source": "KIND-live-public", "ok": True, "rows": int(len(live_kind_public)), "detail": KIND_PUBLIC_OFFER_URL})
             except Exception as exc:
                 source_rows.append({"source": "KIND-live-public", "ok": False, "rows": 0, "detail": str(exc)})
             try:
                 live_kind_pubprice = clean_issue_frame(standardize_kind_pubprice_table(fetch_kind_pubprice_table()))
                 raw_tables["live_kind_pubprice"] = live_kind_pubprice
+                self.cache.write_frame(
+                    "kind_pubprice_live",
+                    live_kind_pubprice,
+                    meta={"source": "KIND", "notes": KIND_PUB_PRICE_URL, "row_count": int(len(live_kind_pubprice))},
+                )
                 source_rows.append({"source": "KIND-live-pubprice", "ok": True, "rows": int(len(live_kind_pubprice)), "detail": KIND_PUB_PRICE_URL})
             except Exception as exc:
                 source_rows.append({"source": "KIND-live-pubprice", "ok": False, "rows": 0, "detail": str(exc)})
             try:
                 live_38 = clean_issue_frame(standardize_38_schedule_table(fetch_38_schedule(include_detail_links=True), fetch_details=True))
                 raw_tables["live_38"] = live_38
+                self.cache.write_frame(
+                    "schedule_38_live",
+                    live_38,
+                    meta={"source": "38", "notes": THIRTYEIGHT_SCHEDULE_URL, "row_count": int(len(live_38))},
+                )
                 source_rows.append({"source": "38-live", "ok": True, "rows": int(len(live_38)), "detail": THIRTYEIGHT_SCHEDULE_URL})
             except Exception as exc:
                 source_rows.append({"source": "38-live", "ok": False, "rows": 0, "detail": str(exc)})
             try:
                 live_kind_corp = clean_issue_frame(fetch_kind_corp_download_table())
                 raw_tables["live_kind_corp"] = live_kind_corp
+                self.cache.write_frame(
+                    "kind_corp_download_live",
+                    live_kind_corp,
+                    meta={"source": "KIND", "notes": "corpList download", "row_count": int(len(live_kind_corp))},
+                )
                 source_rows.append({"source": "KIND-live-corpdownload", "ok": True, "rows": int(len(live_kind_corp)), "detail": "corpList download"})
             except Exception as exc:
                 source_rows.append({"source": "KIND-live-corpdownload", "ok": False, "rows": 0, "detail": str(exc)})

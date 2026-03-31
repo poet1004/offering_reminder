@@ -33,7 +33,7 @@ from src.utils import detect_project_env_file, fmt_date, fmt_num, fmt_pct, fmt_r
 
 APP_ROOT = Path(__file__).resolve().parent
 DATA_DIR = APP_ROOT / "data"
-CACHE_REV = "20260331_v16_deploy_calendar_lab"
+CACHE_REV = "20260331_v17_stable_path_live_bootstrap"
 
 PAGES_REQUIRING_BUNDLE = {
     "대시보드",
@@ -45,6 +45,8 @@ PAGES_REQUIRING_BUNDLE = {
     "데이터 / 설정",
 }
 PAGES_REQUIRING_UNIFIED = {"실험실", "데이터 / 설정"}
+
+SOURCE_MODE_OPTIONS = ["실데이터 우선", "캐시 우선", "샘플만"]
 
 
 try:
@@ -207,7 +209,7 @@ def load_unified_lab_bundle_cached(workspace_path: str, allow_packaged_sample: b
             )
             return bundle
 
-    primary = _attempt(workspace_path or None, allow_packaged_sample=allow_packaged_sample)
+    primary = _attempt(workspace_path or None, allow_packaged_sample)
     explicit_workspace = bool(str(workspace_path or "").strip())
     if explicit_workspace:
         return primary
@@ -1254,16 +1256,19 @@ def render_subscription_page(issues: pd.DataFrame, today: pd.Timestamp) -> None:
         fee = st.number_input("청약 수수료(원)", min_value=0, value=2000, step=500)
         result = proportional_subscription_model(
             deposit_amount=deposit_amount,
-            competition_ratio=competition_ratio,
             offer_price=offer_price,
-            sell_price=target_sell_price,
+            target_sell_price=target_sell_price,
+            competition_ratio=competition_ratio,
             fee=fee,
         )
-        r1, r2, r3 = st.columns(3)
-        r1.metric("예상 배정 주수", fmt_num(result["allocated_shares"], 2))
-        r2.metric("예상 손익", fmt_won(result["estimated_profit"]))
-        r3.metric("손익분기 매도가", fmt_won(result["breakeven_price"]))
-        st.caption("단순 비례 배정 가정입니다. 실제 배정 규정과 균등/비례 비율, 증권사 수수료는 계좌별로 다를 수 있습니다.")
+        c1, c2 = st.columns(2)
+        c1.metric("예상 배정 주수", f"{result.expected_allocated_shares:,.2f}주")
+        c2.metric("예상 손익", fmt_won(result.expected_pnl, 0))
+        c3, c4 = st.columns(2)
+        c3.metric("주당 예상 차익", fmt_won(result.expected_profit_per_share, 0))
+        be_ratio = "-" if result.break_even_competition_ratio is None else f"{result.break_even_competition_ratio:,.2f}:1"
+        c4.metric("손익분기 경쟁률", be_ratio)
+        st.caption("실제 배정은 증권사별 균등/비례 구조와 반올림 규칙에 따라 달라질 수 있습니다.")
 
 
 
@@ -1604,14 +1609,16 @@ def render_calendar_page(
         st.info("달력에 표시할 일정이 없습니다.")
         return
 
-    timeline = timeline.copy()
-    timeline["date"] = pd.to_datetime(timeline["date"], errors="coerce")
-    timeline = timeline.dropna(subset=["date"]).copy()
-    timeline = timeline[timeline["date"] >= pd.Timestamp(today).normalize()].reset_index(drop=True)
-
     period_options = current_calendar_periods(today, months=6)
     period_labels = [format_calendar_period(period) for period in period_options]
     label_to_period = {label: period for label, period in zip(period_labels, period_options)}
+
+    timeline = timeline.copy()
+    timeline["date"] = pd.to_datetime(timeline["date"], errors="coerce")
+    timeline = timeline.dropna(subset=["date"]).copy()
+    calendar_start = period_options[0].start_time.normalize()
+    calendar_end = period_options[-1].end_time.normalize()
+    timeline = timeline[(timeline["date"] >= calendar_start) & (timeline["date"] <= calendar_end)].reset_index(drop=True)
     controls = st.columns([0.38, 0.62])
     selected_period_label = controls[0].selectbox(
         "월 선택",
@@ -2484,10 +2491,20 @@ def main() -> None:
         "메뉴",
         ["대시보드", "딜 탐색기", "청약", "상장", "보호예수", "실험실", "데이터 / 설정"],
     )
-    source_mode = sidebar.selectbox("데이터 모드", ["실데이터 우선", "캐시 우선", "샘플만"], index=1)
-    sidebar.caption("기본값은 캐시 우선입니다. 실시간 확인이 필요할 때만 실데이터 우선으로 바꾸면 됩니다.")
+    default_source_mode = str(os.getenv("DEFAULT_SOURCE_MODE", "실데이터 우선")).strip() or "실데이터 우선"
+    if default_source_mode not in SOURCE_MODE_OPTIONS:
+        default_source_mode = "실데이터 우선"
+    source_mode = sidebar.selectbox("데이터 모드", SOURCE_MODE_OPTIONS, index=SOURCE_MODE_OPTIONS.index(default_source_mode))
+    sidebar.caption("기본값은 실데이터 우선입니다. 실시간 조회에 성공하면 저장본 캐시도 같이 최신화합니다.")
     prefer_live = source_mode == "실데이터 우선"
     allow_sample_fallback = source_mode == "샘플만"
+    if sidebar.button("데이터 다시 읽기", use_container_width=True):
+        load_bundle_cached.clear()
+        load_market_snapshot_bundle_cached.clear()
+        load_market_history_bundle_cached.clear()
+        load_unified_lab_bundle_cached.clear()
+        load_kis_signal_cached.clear()
+        st.rerun()
     allow_packaged_sample = sidebar.checkbox(
         "내장 데모 workspace 자동연결",
         value=source_mode == "샘플만",

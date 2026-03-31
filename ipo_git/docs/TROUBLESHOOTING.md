@@ -6,7 +6,7 @@
 
 ## Streamlit Cloud에서 오래 구워지는 경우
 - `environment.yml`이 남아 있지 않은지 확인
-- Main file path가 `app.py`인지 확인
+- Main file path가 `ipo_git/app.py`인지 확인 (저장소 루트에 `ipo_git` 폴더째 올린 경우)
 - Secrets가 올바른지 확인
 
 ## KIS 403
