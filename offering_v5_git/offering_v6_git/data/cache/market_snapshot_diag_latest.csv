@@ -1,0 +1,12 @@
+﻿category,name,ticker,provider,ok,detail,rows,asof
+snapshot,KOSPI,^KS11,KIS,False,403 Client Error: Forbidden for url: https://openapi.koreainvestment.com:9443/oauth2/tokenP,0,2026-03-29 17:43:55.176602
+snapshot,KOSDAQ,^KQ11,KIS,False,403 Client Error: Forbidden for url: https://openapi.koreainvestment.com:9443/oauth2/tokenP,0,2026-03-29 17:43:55.196109
+snapshot,KOSPI,^KS11,YahooHTTP,True,OK,5,2026-03-29 17:43:55.466013
+snapshot,KOSDAQ,^KQ11,YahooHTTP,True,OK,5,2026-03-29 17:43:55.597714
+snapshot,USD/KRW,KRW=X,YahooHTTP,True,OK,5,2026-03-29 17:43:55.735716
+snapshot,S&P 500,^GSPC,YahooHTTP,True,OK,5,2026-03-29 17:43:55.871724
+snapshot,NASDAQ,^IXIC,YahooHTTP,True,OK,5,2026-03-29 17:43:56.005482
+snapshot,S&P500 Futures,ES=F,YahooHTTP,True,OK,4,2026-03-29 17:43:56.137953
+snapshot,NASDAQ100 Futures,NQ=F,YahooHTTP,True,OK,4,2026-03-29 17:43:56.280927
+snapshot,WTI,CL=F,YahooHTTP,True,OK,4,2026-03-29 17:43:56.427878
+snapshot,Gold,GC=F,YahooHTTP,True,OK,4,2026-03-29 17:43:56.565361

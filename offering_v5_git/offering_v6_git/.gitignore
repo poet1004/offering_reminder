@@ -15,7 +15,11 @@ integrated_lab/ipo_lockup_unified_lab/__pycache__/
 integrated_lab/ipo_lockup_unified_lab/workspace/cache_kis/
 integrated_lab/ipo_lockup_unified_lab/workspace/cache_dart/
 integrated_lab/ipo_lockup_unified_lab/workspace/logs/
-data/cache/
+# Top-level CSV/meta under data/cache are tracked for Streamlit deployment bootstrap.
+data/cache/dart_ipo/
+data/cache/turnover_daily/
+data/cache/market_history_*.csv
+data/cache/market_history_*.meta.json
 data/runtime/
 
 # Optional heavy files

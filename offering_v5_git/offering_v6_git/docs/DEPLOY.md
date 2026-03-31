@@ -17,3 +17,5 @@
 ## 주의
 - 공개 GitHub에는 개인 키가 들어 있는 로컬 전체본을 올리지 않는다.
 - `environment.yml`은 Streamlit Cloud에서 혼선을 줄 수 있어 배포본에서는 제외했다.
+
+- `run_refresh_live_cache.*` 실행 뒤에는 `data/cache`의 변경도 함께 커밋해야 달력/청약/시장 요약이 Streamlit 배포본에 반영됩니다.

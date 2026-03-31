@@ -10,7 +10,7 @@ from typing import Any
 import pandas as pd
 import streamlit as st
 
-st.set_page_config(page_title="공모주 레이더", page_icon="📊", layout="wide")
+st.set_page_config(page_title="공모주 알리미", page_icon="📊", layout="wide")
 
 from src.services.alert_engine import AlertEngine, AlertSettings
 from src.services.backtest_repository import BacktestRepository
@@ -28,12 +28,12 @@ from src.services.scoring import IPOScorer
 from src.services.strategy_bridge import StrategyBridge
 from src.services.turnover_strategy_service import TurnoverStrategyParams, TurnoverStrategyService
 from src.services.unified_lab_bridge import UnifiedLabBridgeService, UnifiedLabBundle, UnifiedLabPaths
-from src.utils import detect_project_env_file, fmt_date, fmt_num, fmt_pct, fmt_ratio, fmt_won, humanize_source, issue_recency_sort, load_project_env, mask_secret, normalize_name_key, runtime_dir, safe_float, standardize_issue_frame, to_csv_bytes
+from src.utils import detect_project_env_file, fmt_date, fmt_num, fmt_pct, fmt_ratio, fmt_won, humanize_source, issue_recency_sort, load_project_env, mask_secret, normalize_name_key, runtime_dir, safe_float, standardize_issue_frame, to_csv_bytes, today_kst
 
 
 APP_ROOT = Path(__file__).resolve().parent
 DATA_DIR = APP_ROOT / "data"
-CACHE_REV = "20260330_v14_ui_shorts_cleanup"
+CACHE_REV = "20260331_v16_deploy_calendar_lab"
 
 PAGES_REQUIRING_BUNDLE = {
     "대시보드",
@@ -41,12 +41,10 @@ PAGES_REQUIRING_BUNDLE = {
     "청약",
     "상장",
     "보호예수",
-    "전략 연구실",
-    "백테스트",
-    "쇼츠 스튜디오",
+    "실험실",
     "데이터 / 설정",
 }
-PAGES_REQUIRING_UNIFIED = {"전략 연구실", "데이터 / 설정"}
+PAGES_REQUIRING_UNIFIED = {"실험실", "데이터 / 설정"}
 
 
 try:
@@ -198,14 +196,46 @@ def load_kis_signal_cached(symbol: str, prefer_live: bool, cache_rev: str = CACH
 def load_unified_lab_bundle_cached(workspace_path: str, allow_packaged_sample: bool, cache_rev: str = CACHE_REV) -> UnifiedLabBundle:
     _ = cache_rev
     service = UnifiedLabBridgeService(DATA_DIR)
+
+    def _attempt(path_text: str | None, allow_sample: bool) -> UnifiedLabBundle:
+        try:
+            return service.load_bundle(path_text or None, allow_packaged_sample=allow_sample)
+        except Exception as exc:
+            bundle = empty_unified_bundle()
+            bundle.source_status = pd.DataFrame(
+                [{"source": "workspace load", "ok": False, "rows": 0, "detail": str(exc)}]
+            )
+            return bundle
+
+    primary = _attempt(workspace_path or None, allow_packaged_sample=allow_packaged_sample)
+    explicit_workspace = bool(str(workspace_path or "").strip())
+    if explicit_workspace:
+        return primary
+
+    sample_candidate = service.auto_detect_workspace(allow_packaged_sample=True)
+    if sample_candidate is None:
+        return primary
     try:
-        return service.load_bundle(workspace_path or None, allow_packaged_sample=allow_packaged_sample)
-    except Exception as exc:
-        bundle = empty_unified_bundle()
-        bundle.source_status = pd.DataFrame(
-            [{"source": "workspace load", "ok": False, "rows": 0, "detail": str(exc)}]
+        primary_workspace = str(primary.paths.workspace or "")
+    except Exception:
+        primary_workspace = ""
+    if primary_workspace and Path(primary_workspace).resolve() == Path(sample_candidate).resolve():
+        return primary
+
+    sample_bundle = _attempt(str(sample_candidate), True)
+    if unified_bundle_quality_score(sample_bundle) > unified_bundle_quality_score(primary):
+        status = sample_bundle.source_status.copy() if isinstance(sample_bundle.source_status, pd.DataFrame) else pd.DataFrame()
+        info_row = pd.DataFrame(
+            [{
+                "source": "workspace fallback",
+                "ok": True,
+                "rows": 0,
+                "detail": f"packaged sample workspace selected: {sample_candidate}",
+            }]
         )
-        return bundle
+        sample_bundle.source_status = pd.concat([info_row, status], ignore_index=True)
+        return sample_bundle
+    return primary
 
 
 def empty_unified_bundle() -> UnifiedLabBundle:
@@ -247,6 +277,72 @@ def empty_unified_bundle() -> UnifiedLabBundle:
         minute_symbol_coverage=pd.DataFrame(),
         source_status=pd.DataFrame(),
     )
+
+
+def unified_bundle_quality_score(bundle: UnifiedLabBundle | None) -> float:
+    if bundle is None:
+        return -1.0
+    score = 0.0
+    data_weights = {
+        "unlocks": 3.0,
+        "signals": 2.0,
+        "turnover_summary_pretty": 2.0,
+        "turnover_trades": 2.0,
+        "beta_summary": 1.5,
+        "minute_jobs": 1.0,
+        "minute_bar_stats": 1.0,
+    }
+    for attr, weight in data_weights.items():
+        df = getattr(bundle, attr, pd.DataFrame())
+        if isinstance(df, pd.DataFrame) and not df.empty:
+            score += weight
+    status = getattr(bundle, "source_status", pd.DataFrame())
+    if isinstance(status, pd.DataFrame) and not status.empty and "ok" in status.columns:
+        ok_count = int(status["ok"].fillna(False).sum())
+        fail_count = int((~status["ok"].fillna(False)).sum())
+        score += ok_count * 0.15
+        score -= fail_count * 0.10
+    return score
+
+
+def experimental_lab_password() -> str:
+    for key in ["LAB_ACCESS_PASSWORD", "EXPERIMENTAL_LAB_PASSWORD"]:
+        value = str(os.getenv(key, "") or "").strip()
+        if value:
+            return value
+    return ""
+
+
+def is_experimental_lab_unlocked() -> bool:
+    configured = experimental_lab_password()
+    if not configured:
+        return True
+    return bool(st.session_state.get("lab_unlocked"))
+
+
+def render_experimental_lab_gate() -> bool:
+    configured = experimental_lab_password()
+    if not configured:
+        st.caption("실험실 비밀번호가 설정되어 있지 않아 바로 열립니다. 필요하면 `LAB_ACCESS_PASSWORD`를 설정하세요.")
+        return True
+    if st.session_state.get("lab_unlocked"):
+        lock_cols = st.columns([0.78, 0.22])
+        lock_cols[0].caption("실험실 잠금이 해제된 상태입니다.")
+        if lock_cols[1].button("다시 잠그기", key="lock_lab_button", use_container_width=True):
+            st.session_state.pop("lab_unlocked", None)
+            st.rerun()
+        return True
+
+    st.subheader("실험실")
+    st.info("전략 연구, 백테스트, 쇼츠 생성 기능은 비밀번호로 잠글 수 있습니다.")
+    pwd = st.text_input("실험실 비밀번호", type="password", key="lab_password_input")
+    if st.button("실험실 열기", key="unlock_lab_button", use_container_width=True):
+        if pwd == configured:
+            st.session_state["lab_unlocked"] = True
+            st.rerun()
+        else:
+            st.error("비밀번호가 맞지 않습니다.")
+    return False
 
 
 def list_artifact_rows(base_dir: Path, patterns: list[str], limit: int = 20) -> pd.DataFrame:
@@ -918,18 +1014,7 @@ def render_dashboard(
 ) -> None:
     repo = IPORepository(DATA_DIR)
     issues = add_issue_scores(bundle.issues)
-    metrics = repo.dashboard_metrics(issues, bundle.all_unlocks, today)
-
-    c1, c2, c3, c4 = st.columns(4)
-    c1.metric("청약 예정/진행", metrics["subscription_count"])
-    c2.metric("상장 예정/직후", metrics["listing_count"])
-    c3.metric("보호예수 해제", metrics["unlock_count"])
-    c4.metric("알림 후보", metrics["alert_count"])
-
-    st.markdown("---")
-    render_calendar_page(bundle, issues, today, show_header=False, show_summary=False)
-
-    snapshot_bundle = load_market_snapshot_bundle_cached(prefer_live, allow_sample_fallback)
+    snapshot_bundle = load_market_snapshot_bundle_cached(prefer_live, True)
     snapshot = snapshot_bundle["frame"]
     snapshot_source = snapshot_bundle["source"]
     snapshot_diag = snapshot_bundle.get("diagnostics", pd.DataFrame())
@@ -937,19 +1022,48 @@ def render_dashboard(
     mood = market_service.market_mood(snapshot)
     issue_counts = count_issue_sources(issues)
 
-    st.markdown("---")
-    st.markdown("**시장 스냅샷**")
-    render_sample_data_warning(source_mode, issue_counts, snapshot_source)
-    st.caption(f"스냅샷 소스: {snapshot_source} · 시장 분위기: {mood['label']} ({mood['score']})")
-    if snapshot.empty:
-        st.info("표시할 시장 스냅샷이 없습니다.")
+    subscription_count = int(len(repo.upcoming_subscriptions(issues, today, window_days=30)))
+    listing_count = int(len(repo.upcoming_listings(issues, today, window_days=30)))
+    unlock_count = int(len(repo.upcoming_unlocks(bundle.all_unlocks, today, window_days=30)))
+    alert_count = int(len(repo.alert_candidates(issues, bundle.all_unlocks, today)))
+
+    market_priority = ["KOSPI", "KOSDAQ", "USD/KRW"]
+    market_rows: list[dict[str, Any]] = []
+    if isinstance(snapshot, pd.DataFrame) and not snapshot.empty:
+        work = snapshot.copy()
+        work["name"] = work.get("name", pd.Series(dtype="object")).astype(str)
+        for name in market_priority:
+            hit = work[work["name"] == name]
+            if not hit.empty:
+                market_rows.append(hit.iloc[0].to_dict())
+        if not market_rows:
+            market_rows = work.head(3).to_dict("records")
+
+    top_cols = st.columns(4)
+    if market_rows:
+        for col, row in zip(top_cols[: min(3, len(market_rows))], market_rows[:3]):
+            col.metric(str(row.get("name") or "-"), fmt_num(row.get("last"), 2), fmt_pct(row.get("change_pct"), 2, signed=True))
     else:
-        render_metric_cards(snapshot, limit=6)
+        top_cols[0].metric("시장", "준비 중")
+        top_cols[1].metric("시장", "준비 중")
+        top_cols[2].metric("시장", "준비 중")
+    mood_delta = "-" if mood.get("score") is None else f"score {fmt_num(mood.get('score'), 2)}"
+    top_cols[3].metric("시장 분위기", str(mood.get("label") or "데이터없음"), mood_delta)
+
+    count_cols = st.columns(4)
+    count_cols[0].metric("30일 내 청약", subscription_count)
+    count_cols[1].metric("30일 내 상장", listing_count)
+    count_cols[2].metric("30일 내 보호예수", unlock_count)
+    count_cols[3].metric("알림 후보", alert_count)
+
+    render_sample_data_warning(source_mode, issue_counts, snapshot_source)
+    st.caption(f"시장 소스: {snapshot_source}")
+    st.markdown("---")
+    render_calendar_page(bundle, issues, today, show_header=False, show_summary=False)
 
     if prefer_live and isinstance(snapshot_diag, pd.DataFrame) and not snapshot_diag.empty:
-        with st.expander("시장 스냅샷 실패 로그", expanded=False):
-            render_market_diagnostics(snapshot_diag, title="시장 스냅샷 실패 로그", only_failures=True)
-
+        with st.expander("시장 진단 로그", expanded=False):
+            render_market_diagnostics(snapshot_diag, title="시장 진단 로그", only_failures=False)
 
 
 
@@ -1057,18 +1171,52 @@ def render_explorer(bundle: IPODataBundle, prefer_live: bool) -> None:
             st.info("KIS 연결이 없거나 데이터가 부족해 샘플 수치만 표시했습니다.")
 
 
-def render_subscription_page(issues: pd.DataFrame) -> None:
+def select_subscription_candidates(issues: pd.DataFrame, today: pd.Timestamp | None = None) -> pd.DataFrame:
+    today = pd.Timestamp(today or today_kst()).normalize()
+    work = add_issue_scores(issues)
+    if work.empty:
+        return work
+    stage = work.get("stage", pd.Series(index=work.index, dtype="object")).fillna("").astype(str)
+    sub_start = pd.to_datetime(work.get("subscription_start"), errors="coerce")
+    sub_end = pd.to_datetime(work.get("subscription_end"), errors="coerce")
+    primary = stage.isin(["청약예정", "청약중", "청약완료"])
+    fallback = (
+        (sub_start.notna() & (sub_start >= today - pd.Timedelta(days=30)) & (sub_start <= today + pd.Timedelta(days=180)))
+        | (sub_end.notna() & (sub_end >= today - pd.Timedelta(days=30)) & (sub_end <= today + pd.Timedelta(days=180)))
+    )
+    out = work.loc[primary | fallback].copy()
+    if out.empty:
+        return out
+    return issue_recency_sort(out, today=today)
+
+
+def select_listing_candidates(issues: pd.DataFrame, today: pd.Timestamp | None = None) -> pd.DataFrame:
+    today = pd.Timestamp(today or today_kst()).normalize()
+    work = add_issue_scores(issues)
+    if work.empty:
+        return work
+    stage = work.get("stage", pd.Series(index=work.index, dtype="object")).fillna("").astype(str)
+    listing = pd.to_datetime(work.get("listing_date"), errors="coerce")
+    primary = stage.isin(["상장예정", "상장후"])
+    fallback = listing.notna() & (listing >= today - pd.Timedelta(days=720))
+    out = work.loc[primary | fallback].copy()
+    if out.empty:
+        return out
+    return out
+
+
+def render_subscription_page(issues: pd.DataFrame, today: pd.Timestamp) -> None:
     st.subheader("청약 단계")
     st.caption("기관경쟁률, 증권사, 공모가와 비례청약 손익분기까지 같이 보는 화면입니다.")
-    issues = add_issue_scores(issues)
-    df = issues[issues["stage"].isin(["청약예정", "청약중", "청약완료"])].copy()
+    df = select_subscription_candidates(issues, today=today)
     if df.empty:
-        st.info("표시할 청약 종목이 없습니다.")
+        st.info("현재 불러온 일정 기준으로 미래/최근 청약 종목이 없습니다. 캐시를 새로고침했는데도 비어 있으면 실제 예정 종목이 없는 상태일 가능성이 큽니다.")
         return
 
     left, right = st.columns([1.35, 1])
+    sorted_df = safe_sort_values(df, ["subscription_start", "subscription_score"], ascending=[True, False]).reset_index(drop=True)
     with left:
-        display = df[[
+        display = sorted_df[[
             "name",
             "market",
             "stage",
@@ -1085,18 +1233,18 @@ def render_subscription_page(issues: pd.DataFrame) -> None:
         ]].copy()
         for col in ["subscription_start", "subscription_end"]:
             display[col] = pd.to_datetime(display[col], errors="coerce").dt.strftime("%Y-%m-%d")
-        st.dataframe(safe_sort_values(display, ["subscription_score", "subscription_start"], ascending=[False, True]), hide_index=True, use_container_width=True)
+        st.dataframe(display, hide_index=True, use_container_width=True)
         render_download_button("청약 후보 CSV 내려받기", display, "subscriptions.csv")
 
-        issue = issue_selector(safe_sort_values(df, ["subscription_score", "subscription_start"], ascending=[False, True]).reset_index(drop=True), key="subscription_issue")
+        issue = issue_selector(sorted_df, key="subscription_issue")
         if issue is not None:
             render_issue_overview(issue)
 
     with right:
         st.markdown("**비례청약 손익분기 계산기**")
-        issue_names = df["name"].tolist()
+        issue_names = sorted_df["name"].tolist()
         selected_name = st.selectbox("계산 기준 종목", options=issue_names, key="calc_issue")
-        issue = df[df["name"] == selected_name].iloc[0]
+        issue = sorted_df[sorted_df["name"] == selected_name].iloc[0]
         deposit_amount = st.number_input("투입 증거금(원)", min_value=100000, step=100000, value=1000000)
         offer_price = st.number_input("공모가(원)", min_value=1000, step=100, value=int(float(issue["offer_price"]) if pd.notna(issue["offer_price"]) else 10000))
         target_sell_price = st.number_input("예상 매도가(원)", min_value=1000, step=100, value=int((float(issue["offer_price"]) if pd.notna(issue["offer_price"]) else 10000) * 1.3))
@@ -1106,31 +1254,29 @@ def render_subscription_page(issues: pd.DataFrame) -> None:
         fee = st.number_input("청약 수수료(원)", min_value=0, value=2000, step=500)
         result = proportional_subscription_model(
             deposit_amount=deposit_amount,
-            offer_price=offer_price,
-            target_sell_price=target_sell_price,
             competition_ratio=competition_ratio,
+            offer_price=offer_price,
+            sell_price=target_sell_price,
             fee=fee,
         )
-        c1, c2 = st.columns(2)
-        c1.metric("예상 배정 주수", f"{result.expected_allocated_shares:,.2f}주")
-        c2.metric("예상 손익", fmt_won(result.expected_pnl, 0))
-        c3, c4 = st.columns(2)
-        c3.metric("주당 예상 차익", fmt_won(result.expected_profit_per_share, 0))
-        be_ratio = "-" if result.break_even_competition_ratio is None else f"{result.break_even_competition_ratio:,.2f}:1"
-        c4.metric("손익분기 경쟁률", be_ratio)
-        st.caption("실제 배정은 증권사별 균등/비례 구조와 반올림 규칙에 따라 달라질 수 있습니다.")
+        r1, r2, r3 = st.columns(3)
+        r1.metric("예상 배정 주수", fmt_num(result["allocated_shares"], 2))
+        r2.metric("예상 손익", fmt_won(result["estimated_profit"]))
+        r3.metric("손익분기 매도가", fmt_won(result["breakeven_price"]))
+        st.caption("단순 비례 배정 가정입니다. 실제 배정 규정과 균등/비례 비율, 증권사 수수료는 계좌별로 다를 수 있습니다.")
 
 
-def render_listing_page(issues: pd.DataFrame, prefer_live: bool) -> None:
+
+def render_listing_page(issues: pd.DataFrame, prefer_live: bool, today: pd.Timestamp) -> None:
     st.subheader("상장 단계")
     st.caption("확약, 우리사주 실권, 유통가능물량, 기존주주비율, 현재가와 기술신호를 같이 봅니다.")
-    issues = add_issue_scores(issues)
-    target_df = issues[issues["stage"].isin(["상장예정", "상장후"])].copy()
+    target_df = select_listing_candidates(issues, today=today)
     if target_df.empty:
         st.info("표시할 상장 종목이 없습니다.")
         return
 
-    display = target_df[[
+    sorted_target = safe_sort_values(target_df, ["listing_date", "listing_quality_score"], ascending=[False, False]).reset_index(drop=True)
+    display = sorted_target[[
         "name",
         "market",
         "listing_date",
@@ -1145,10 +1291,10 @@ def render_listing_page(issues: pd.DataFrame, prefer_live: bool) -> None:
         "source",
     ]].copy()
     display["listing_date"] = pd.to_datetime(display["listing_date"], errors="coerce").dt.strftime("%Y-%m-%d")
-    st.dataframe(safe_sort_values(display, ["listing_quality_score", "listing_date"], ascending=[False, True]), hide_index=True, use_container_width=True)
+    st.dataframe(display, hide_index=True, use_container_width=True)
     render_download_button("상장 종목 CSV 내려받기", display, "listings.csv")
 
-    issue = issue_selector(safe_sort_values(target_df, ["listing_quality_score", "listing_date"], ascending=[False, True]).reset_index(drop=True), key="listing_issue")
+    issue = issue_selector(sorted_target, key="listing_issue")
     if issue is None:
         return
 
@@ -1181,559 +1327,6 @@ def render_listing_page(issues: pd.DataFrame, prefer_live: bool) -> None:
         chart_df = history[["date", "close"]].rename(columns={"date": "날짜", "close": "종가"}).set_index("날짜")
         st.line_chart(chart_df)
 
-
-def render_strategy_bridge_page(bundle: IPODataBundle, issues: pd.DataFrame, today: pd.Timestamp, version: str) -> None:
-    st.subheader("전략 브릿지")
-    st.caption("보호예수 해제 자동매수 백테스트와 현재 unlock 캘린더를 붙여 매수 후보를 골라봅니다.")
-    strategy_bridge = StrategyBridge(DATA_DIR)
-    term_edge = strategy_bridge.term_edge_table(version)
-    if term_edge.empty:
-        st.info("전략 요약 데이터가 없습니다.")
-    else:
-        st.markdown("**기간별 히스토리컬 엣지**")
-        st.dataframe(term_edge, hide_index=True, use_container_width=True)
-
-    candidates = strategy_bridge.rank_upcoming_unlock_candidates(bundle.all_unlocks, issues, today, version, horizon_days=60)
-    st.markdown("**향후 60일 unlock 후보 랭킹**")
-    if candidates.empty:
-        st.info("향후 60일 내 unlock 후보가 없습니다. 통합 lab는 메뉴 2를 먼저 실행하면 workspace/dataset_out/synthetic_ipo_events.csv가 생기고, 메뉴 4~5 이후에는 unlock_out/unlock_events_backtest_input.csv가 생깁니다. 두 파일이 아직 없으면 이 화면도 비어 있을 수 있습니다.")
-    else:
-        view = candidates.copy()
-        view["unlock_date"] = pd.to_datetime(view["unlock_date"], errors="coerce").dt.strftime("%Y-%m-%d")
-        st.dataframe(view, hide_index=True, use_container_width=True)
-        render_download_button("전략 후보 CSV 내려받기", view, f"strategy_candidates_v{version.replace('.', '_')}.csv")
-
-    heatmap = strategy_bridge.monthly_unlock_heatmap(bundle.all_unlocks)
-    if not heatmap.empty:
-        st.markdown("**월별 unlock 분포**")
-        st.dataframe(heatmap, hide_index=True, use_container_width=True)
-
-
-def render_lockup_strategy_page(bundle: IPODataBundle, issues: pd.DataFrame, today: pd.Timestamp, version: str, prefer_live: bool, unified_bundle: UnifiedLabBundle) -> None:
-    st.subheader("락업 매수전략")
-    st.caption("DART 지표 + 해제 캘린더 + 백테스트 규칙을 한 화면에서 묶어 실제 실행 후보를 정리합니다.")
-
-    def entry_filter_label(value: Any) -> str:
-        if value is True:
-            return "통과"
-        if value is False:
-            return "미달"
-        return "미확인"
-
-    service = LockupStrategyService(DATA_DIR)
-    c1, c2, c3, c4 = st.columns([0.9, 1.25, 1.2, 0.9])
-    horizon_days = c1.slider("앞으로 볼 기간(일)", min_value=7, max_value=180, value=90, step=7)
-
-    board = service.build_strategy_board(bundle.all_unlocks, issues, today, version, horizon_days=horizon_days)
-    if board.empty:
-        st.info("표시할 보호예수 해제 전략 후보가 없습니다. integrated lab 메뉴 2를 먼저 실행하면 workspace/dataset_out/synthetic_ipo_events.csv가 생기고 자동 연결됩니다. 메뉴 4~5 이후 unlock_out 산출물이 생기면 실제 unlock 이벤트 기준으로 더 구체화됩니다.")
-        return
-    board = board.copy()
-    board["strategy_version"] = version
-    unified_service = UnifiedLabBridgeService(DATA_DIR)
-    if unified_bundle.paths.workspace is not None:
-        board = unified_service.enrich_strategy_board(board, unified_bundle, today=today)
-
-    term_options = sorted([x for x in board["term"].dropna().astype(str).unique().tolist() if x])
-    decision_order = [x for x in ["우선검토", "관찰강화", "관찰", "보류"] if x in board["decision"].astype(str).unique().tolist()]
-    selected_terms = c2.multiselect("term 필터", options=term_options, default=term_options)
-    selected_decisions = c3.multiselect("판단 필터", options=decision_order, default=decision_order)
-    only_entry_ready = c4.checkbox("진입배수 미달 제외", value=False)
-
-    d1, d2, d3, d4 = st.columns([1.1, 1.0, 1.0, 1.1])
-    market_options = sorted([x for x in board.get("market", pd.Series(dtype="object")).dropna().astype(str).unique().tolist() if x])
-    selected_markets = d1.multiselect("시장 필터", options=market_options, default=market_options)
-    positive_edge_only = d2.checkbox("히스토리컬 edge 양수만", value=False)
-    dart_only = d3.checkbox("DART 보강값 있는 종목만", value=False)
-    sort_by = d4.selectbox("정렬 기준", ["conviction_score", "combined_score", "days_left"], index=0)
-
-    filtered = board.copy()
-    if selected_terms:
-        filtered = filtered[filtered["term"].astype(str).isin(selected_terms)]
-    if selected_decisions:
-        filtered = filtered[filtered["decision"].astype(str).isin(selected_decisions)]
-    if selected_markets:
-        filtered = filtered[filtered["market"].astype(str).isin(selected_markets)]
-    if only_entry_ready and "entry_filter_pass" in filtered.columns:
-        filtered = filtered[filtered["entry_filter_pass"] != False]
-    if positive_edge_only:
-        filtered = filtered[pd.to_numeric(filtered["historical_edge"], errors="coerce").fillna(0) > 0]
-    if dart_only:
-        filtered = filtered[
-            filtered[[c for c in ["dart_receipt_no", "secondary_sale_ratio", "total_offer_shares", "dart_filing_date"] if c in filtered.columns]]
-            .notna()
-            .any(axis=1)
-        ]
-
-    if filtered.empty:
-        st.warning("현재 필터 조건을 만족하는 후보가 없습니다.")
-        return
-
-    sort_columns = {
-        "conviction_score": ["decision_rank", "conviction_score", "combined_score", "days_left"],
-        "combined_score": ["decision_rank", "combined_score", "conviction_score", "days_left"],
-        "days_left": ["days_left", "decision_rank", "conviction_score"],
-    }
-    ascending_map = {
-        "conviction_score": [True, False, False, True],
-        "combined_score": [True, False, False, True],
-        "days_left": [True, True, False],
-    }
-    filtered = filtered.sort_values(sort_columns[sort_by], ascending=ascending_map[sort_by]).reset_index(drop=True)
-
-    order_sheet = service.build_order_sheet(filtered, min_decision_rank=2)
-    summary = service.decision_summary(filtered)
-    summary_map = summary.set_index("decision").to_dict(orient="index") if not summary.empty else {}
-    bridge_count = 0
-    if "bridge_status" in filtered.columns:
-        bridge_count = int(len(filtered[filtered["bridge_status"].astype(str).isin(["신호발생", "수집대기", "수집중", "데이터적재"]) ]))
-    m1, m2, m3, m4, m5, m6 = st.columns(6)
-    m1.metric("우선검토", int(summary_map.get("우선검토", {}).get("candidates", 0)))
-    m2.metric("관찰강화", int(summary_map.get("관찰강화", {}).get("candidates", 0)))
-    m3.metric("관찰", int(summary_map.get("관찰", {}).get("candidates", 0)))
-    m4.metric("상위 5개 평균 conviction", fmt_num(filtered.head(5)["conviction_score"].mean(), 1))
-    m5.metric("5분봉 연결후보", bridge_count)
-    m6.metric("주문시트 후보", len(order_sheet))
-
-    with st.expander("기간별 실행 규칙 / 백테스트 룰", expanded=False):
-        rules = service.term_rules(version).copy()
-        if rules.empty:
-            st.info("기간별 규칙을 읽지 못했습니다.")
-        else:
-            rules_view = rules[[c for c in [
-                "term",
-                "entry_rule",
-                "hold_days_after_entry",
-                "min_prev_close_vs_ipo_pct",
-                "trades",
-                "win_rate",
-                "avg_ret",
-                "compound_ret",
-                "median_calendar_lag",
-            ] if c in rules.columns]].copy()
-            if "min_prev_close_vs_ipo_pct" in rules_view.columns:
-                rules_view["min_prev_close_vs_ipo_pct"] = rules_view["min_prev_close_vs_ipo_pct"].map(lambda x: "-" if pd.isna(x) else f"{x:,.2f}%")
-            st.dataframe(rules_view, hide_index=True, use_container_width=True)
-            st.caption("공모가 대비 배수 필터는 백테스트의 prev_close_vs_ipo 최소조건을 현재가 기준으로 대략 대체한 값입니다.")
-
-    board_view = filtered[[c for c in [
-        "name",
-        "term",
-        "unlock_date",
-        "days_left",
-        "decision",
-        "priority_tier",
-        "combined_score",
-        "conviction_score",
-        "historical_edge",
-        "win_rate",
-        "entry_rule",
-        "planned_entry_date",
-        "planned_exit_date",
-        "current_vs_offer_pct",
-        "min_prev_close_vs_ipo_pct",
-        "entry_filter_pass",
-        "technical_signal",
-        "lockup_commitment_ratio",
-        "circulating_shares_ratio_on_listing",
-        "existing_shareholder_ratio",
-        "secondary_sale_ratio",
-        "suggested_weight_pct_of_base",
-        "bridge_status",
-        "minute_job_status",
-        "turnover_signal_hits",
-        "turnover_first_signal_ts",
-        "turnover_best_ratio",
-        "turnover_backtest_avg_net_ret_pct",
-        "rationale",
-    ] if c in filtered.columns]].copy()
-    for col in ["unlock_date", "planned_entry_date", "planned_exit_date", "turnover_first_signal_ts"]:
-        if col in board_view.columns:
-            board_view[col] = pd.to_datetime(board_view[col], errors="coerce").dt.strftime("%Y-%m-%d")
-    if "entry_filter_pass" in board_view.columns:
-        board_view["entry_filter_pass"] = board_view["entry_filter_pass"].map(entry_filter_label)
-
-    st.markdown("**실행 보드**")
-    st.dataframe(board_view, hide_index=True, use_container_width=True)
-    dl1, dl2 = st.columns(2)
-    with dl1:
-        render_download_button("전략 보드 CSV 내려받기", filtered, f"lockup_strategy_board_v{version.replace('.', '_')}.csv")
-    with dl2:
-        if order_sheet.empty:
-            st.info("우선검토/관찰강화 후보가 없어 주문시트를 만들지 않았습니다.")
-        else:
-            render_download_button("주문시트 CSV 내려받기", order_sheet, f"lockup_order_sheet_v{version.replace('.', '_')}.csv")
-
-    candidate = strategy_candidate_selector(filtered, key="lockup_strategy_candidate")
-    if candidate is None:
-        return
-
-    st.markdown("---")
-    st.markdown("**선택 후보 상세**")
-    x1, x2, x3, x4, x5, x6 = st.columns(6)
-    x1.metric("판단", text_value(candidate.get("decision")))
-    x2.metric("우선순위", text_value(candidate.get("priority_tier")))
-    x3.metric("Conviction", fmt_num(candidate.get("conviction_score"), 1))
-    x4.metric("진입룰", text_value(candidate.get("entry_rule")))
-    x5.metric("예상 진입일", fmt_date(candidate.get("planned_entry_date")))
-    x6.metric("예상 종료일", fmt_date(candidate.get("planned_exit_date")))
-
-    t1, t2, t3, t4, t5, t6 = st.tabs(["실행 플랜", "DART / 수급", "5분봉 / turnover", "백테스트 근거", "주가 / 기술", "내보내기"])
-    with t1:
-        render_issue_overview(candidate)
-        timeline = pd.DataFrame(
-            [
-                {"구분": "사전점검", "일자": fmt_date(candidate.get("planned_check_date")), "내용": "DART/오버행/수급 재확인"},
-                {"구분": "진입관찰", "일자": fmt_date(candidate.get("planned_entry_date")), "내용": text_value(candidate.get("entry_rule"))},
-                {"구분": "청산예상", "일자": fmt_date(candidate.get("planned_exit_date")), "내용": f"보유 {int(safe_float(candidate.get('hold_days_after_entry'), 0) or 0)} 영업일"},
-            ]
-        )
-        st.markdown("**실행 타임라인**")
-        st.dataframe(timeline, hide_index=True, use_container_width=True)
-        st.write(
-            {
-                "판단 메모": text_value(candidate.get("rationale")),
-                "강점": text_value(candidate.get("positive_flags")),
-                "리스크": text_value(candidate.get("risk_flags")),
-                "해제 데이터 출처": humanize_source(candidate.get("unlock_source")),
-                "베이스 포지션 대비 권장": f"{int(safe_float(candidate.get('suggested_weight_pct_of_base'), 0) or 0)}%",
-            }
-        )
-
-    with t2:
-        render_issue_dart_overlay_from_issue(candidate)
-        dart_client = DartClient.from_env()
-        if dart_client is None:
-            st.info("DART_API_KEY를 넣으면 선택 후보를 즉시 원문 재분석할 수 있습니다.")
-        else:
-            force = st.checkbox("캐시 무시하고 다시 분석", value=False, key=f"lockup_dart_force_{normalize_name_key(candidate.get('name'))}_{candidate.get('term')}")
-            snapshot_key = f"lockup_dart_snapshot::{normalize_name_key(candidate.get('name'))}::{candidate.get('term')}"
-            if st.button("선택 후보 DART 원문 분석", use_container_width=True, key=f"lockup_dart_btn_{normalize_name_key(candidate.get('name'))}_{candidate.get('term')}"):
-                with st.spinner("선택 후보의 DART 본문을 분석하는 중입니다..."):
-                    if force:
-                        load_dart_ipo_snapshot_cached.clear()
-                    snapshot = load_dart_ipo_snapshot_cached(
-                        text_value(candidate.get("symbol"), ""),
-                        text_value(candidate.get("name"), ""),
-                        force=force,
-                    )
-                    st.session_state[snapshot_key] = snapshot
-            snapshot = st.session_state.get(snapshot_key)
-            if snapshot is not None:
-                render_dart_snapshot(snapshot, issue=candidate)
-
-    with t3:
-        render_turnover_candidate_context(candidate, unified_bundle)
-
-    with t4:
-        rule_df = service.term_rules(version)
-        rule_df = rule_df[rule_df["term"].astype(str) == text_value(candidate.get("term"), "")].copy()
-        if not rule_df.empty:
-            rule = rule_df.iloc[0]
-            r1, r2, r3, r4, r5 = st.columns(5)
-            r1.metric("백테스트 거래수", fmt_num(rule.get("trades"), 0))
-            r2.metric("승률", fmt_pct(rule.get("win_rate"), 2))
-            r3.metric("평균수익률", fmt_pct(rule.get("avg_ret"), 2, signed=True))
-            r4.metric("복리수익률", fmt_pct(rule.get("compound_ret"), 2, signed=True))
-            r5.metric("공모가 대비 최소 배수", "-" if pd.isna(rule.get("min_prev_close_vs_ipo_pct")) else fmt_pct(rule.get("min_prev_close_vs_ipo_pct"), 2))
-
-        examples = service.historical_examples(
-            version,
-            text_value(candidate.get("term"), ""),
-            reference_ratio=safe_float(candidate.get("current_vs_offer_ratio")),
-            limit=10,
-        )
-        st.markdown("**유사 term 과거 거래 예시**")
-        if examples.empty:
-            st.info("표시할 과거 거래 예시가 없습니다.")
-        else:
-            ex_view = examples[[c for c in [
-                "name",
-                "symbol",
-                "unlock_date",
-                "entry_dt",
-                "exit_dt",
-                "entry_price_vs_ipo",
-                "net_ret_pct",
-                "hold_days_after_entry",
-                "distance_vs_candidate",
-            ] if c in examples.columns]].copy()
-            for col in ["unlock_date", "entry_dt", "exit_dt"]:
-                if col in ex_view.columns:
-                    ex_view[col] = pd.to_datetime(ex_view[col], errors="coerce").dt.strftime("%Y-%m-%d")
-            st.dataframe(ex_view, hide_index=True, use_container_width=True)
-
-        skip_breakdown = service.skip_breakdown(version, text_value(candidate.get("term"), ""))
-        st.markdown("**같은 term 스킵 사유**")
-        if skip_breakdown.empty:
-            st.info("스킵 요약 데이터가 없습니다.")
-        else:
-            skip_view = skip_breakdown[[c for c in ["reason_label", "count", "share_pct"] if c in skip_breakdown.columns]].copy()
-            st.dataframe(skip_view, hide_index=True, use_container_width=True)
-
-        recent_skips = service.recent_skip_examples(version, text_value(candidate.get("term"), ""), limit=8)
-        if not recent_skips.empty:
-            st.markdown("**최근 스킵 예시**")
-            rs_view = recent_skips[[c for c in ["name", "symbol", "unlock_date", "reason_label", "prev_close_vs_ipo", "threshold"] if c in recent_skips.columns]].copy()
-            if "unlock_date" in rs_view.columns:
-                rs_view["unlock_date"] = pd.to_datetime(rs_view["unlock_date"], errors="coerce").dt.strftime("%Y-%m-%d")
-            st.dataframe(rs_view, hide_index=True, use_container_width=True)
-
-    with t5:
-        current_price = candidate.get("current_price")
-        ma20 = candidate.get("ma20")
-        ma60 = candidate.get("ma60")
-        rsi14 = candidate.get("rsi14")
-        history = pd.DataFrame()
-        source_label = text_value(candidate.get("source"), "sample")
-        if prefer_live and str(candidate.get("symbol", "")).isdigit():
-            live_signal = load_kis_signal_cached(str(candidate["symbol"]), prefer_live=prefer_live)
-            if live_signal:
-                current_price = live_signal.get("current_price")
-                ma20 = live_signal.get("ma20")
-                ma60 = live_signal.get("ma60")
-                rsi14 = live_signal.get("rsi14")
-                history = live_signal.get("history", pd.DataFrame())
-                source_label = "KIS"
-        signal = signal_from_values(current_price, ma20, ma60, rsi14)
-        if pd.notna(current_price) and pd.notna(candidate.get("offer_price")) and safe_float(candidate.get("offer_price")) not in {None, 0}:
-            premium_live = (float(current_price) / float(candidate.get("offer_price")) - 1.0) * 100
-        else:
-            premium_live = safe_float(candidate.get("current_vs_offer_pct"))
-        q1, q2, q3, q4, q5 = st.columns(5)
-        q1.metric("기술신호", signal)
-        q2.metric("현재가", fmt_won(current_price))
-        q3.metric("공모가 대비", fmt_pct(premium_live, 2, signed=True))
-        q4.metric("MA20", fmt_won(ma20))
-        q5.metric("RSI14", fmt_num(rsi14, 1))
-        st.caption(f"기술신호 소스: {source_label}")
-        if not history.empty:
-            chart_df = history[["date", "close"]].rename(columns={"date": "날짜", "close": "종가"}).set_index("날짜")
-            st.line_chart(chart_df)
-        else:
-            st.info("KIS 연결이 없거나 데이터가 부족해 저장된 수치만 표시했습니다.")
-
-    with t6:
-        selected_df = filtered[(filtered["name"] == candidate.get("name")) & (filtered["term"] == candidate.get("term"))].head(1).copy()
-        selected_plan = service.build_order_sheet(selected_df, min_decision_rank=4)
-        st.markdown("**선택 후보 실행 프리뷰**")
-        if selected_plan.empty:
-            st.info("선택 후보 실행 프리뷰를 만들지 못했습니다.")
-        else:
-            st.dataframe(selected_plan, hide_index=True, use_container_width=True)
-            render_download_button(
-                "선택 후보 실행 CSV 내려받기",
-                selected_plan,
-                f"lockup_candidate_{normalize_name_key(candidate.get('name'))}_{candidate.get('term')}.csv",
-            )
-
-        st.markdown("**우선검토/관찰강화 전체 주문시트**")
-        if order_sheet.empty:
-            st.info("현재 기준으로 주문시트 대상이 없습니다.")
-        else:
-            st.dataframe(order_sheet.head(20), hide_index=True, use_container_width=True)
-
-        payload = {
-            "strategy_version": version,
-            "symbol": candidate.get("symbol"),
-            "name": candidate.get("name"),
-            "term": candidate.get("term"),
-            "unlock_date": fmt_date(candidate.get("unlock_date")),
-            "planned_entry_date": fmt_date(candidate.get("planned_entry_date")),
-            "planned_exit_date": fmt_date(candidate.get("planned_exit_date")),
-            "entry_rule": candidate.get("entry_rule"),
-            "hold_days_after_entry": int(safe_float(candidate.get("hold_days_after_entry"), 0) or 0),
-            "decision": candidate.get("decision"),
-            "priority_tier": candidate.get("priority_tier"),
-            "suggested_weight_pct_of_base": int(safe_float(candidate.get("suggested_weight_pct_of_base"), 0) or 0),
-            "memo": candidate.get("rationale"),
-        }
-        st.markdown("**자동화 연결용 JSON 프리뷰**")
-        st.json(payload)
-
-
-def render_minute_bridge_page(bundle: IPODataBundle, issues: pd.DataFrame, today: pd.Timestamp, version: str, unified_bundle: UnifiedLabBundle) -> None:
-    st.subheader("5분봉 브리지")
-    st.caption("분리된 키움/CSV minute 연구 파이프라인 산출물을 현재 공모주 앱의 전략 보드와 연결해 봅니다.")
-    if unified_bundle.paths.workspace is None:
-        st.info("Unified Lab workspace를 아직 찾지 못했습니다. 통합 프로젝트에서는 integrated_lab/ipo_lockup_unified_lab/workspace를 자동 탐지하고, 외부 workspace도 사이드바에서 직접 지정할 수 있습니다.")
-        return
-
-    bridge_service = UnifiedLabBridgeService(DATA_DIR)
-    st.write(
-        {
-            "workspace": str(unified_bundle.paths.workspace),
-            "unlock csv": str(unified_bundle.paths.unlock_csv or ""),
-            "signals csv": str(unified_bundle.paths.signals_csv or ""),
-            "minute db": str(unified_bundle.paths.minute_db_path or ""),
-            "turnover backtest": str(unified_bundle.paths.turnover_backtest_dir or ""),
-        }
-    )
-    a1, a2, a3, a4, a5, a6 = st.columns(6)
-    a1.metric("unlock events", len(unified_bundle.unlocks))
-    a2.metric("signal hits", len(unified_bundle.signals))
-    a3.metric("signal misses", len(unified_bundle.misses))
-    a4.metric("turnover trades", len(unified_bundle.turnover_trades))
-    queue_pending = 0
-    if not unified_bundle.minute_job_counts.empty and {"status", "jobs"}.issubset(unified_bundle.minute_job_counts.columns):
-        queue_pending = int(unified_bundle.minute_job_counts[unified_bundle.minute_job_counts["status"].astype(str).isin(["queued", "running"])] ["jobs"].sum())
-    a5.metric("minute queue", queue_pending)
-    bars_total = 0
-    if not unified_bundle.minute_bar_stats.empty and "bars" in unified_bundle.minute_bar_stats.columns:
-        bars_total = int(pd.to_numeric(unified_bundle.minute_bar_stats["bars"], errors="coerce").sum())
-    a6.metric("loaded bars", bars_total)
-
-    t1, t2, t3, t4 = st.tabs(["브리지 보드", "신호 / misses", "minute DB", "turnover 백테스트"])
-
-    with t1:
-        horizon_days = st.slider("브리지 보드 범위(일)", min_value=14, max_value=180, value=120, step=7, key="minute_bridge_horizon")
-        lockup_service = LockupStrategyService(DATA_DIR)
-        board = lockup_service.build_strategy_board(bundle.all_unlocks, issues, today, version, horizon_days=horizon_days)
-        if board.empty:
-            st.info("표시할 향후 unlock 전략 후보가 없습니다.")
-        else:
-            board = board.copy()
-            board["strategy_version"] = version
-            board = bridge_service.enrich_strategy_board(board, unified_bundle, today=today)
-            bridge_options = sorted([x for x in board.get("bridge_status", pd.Series(dtype="object")).dropna().astype(str).unique().tolist() if x])
-            selected_bridge = st.multiselect("bridge 상태 필터", options=bridge_options, default=bridge_options)
-            filtered = board.copy()
-            if selected_bridge:
-                filtered = filtered[filtered["bridge_status"].astype(str).isin(selected_bridge)]
-            view = filtered[[c for c in [
-                "name",
-                "term",
-                "unlock_date",
-                "decision",
-                "priority_tier",
-                "bridge_status",
-                "minute_job_status",
-                "turnover_signal_hits",
-                "turnover_first_signal_ts",
-                "turnover_best_ratio",
-                "turnover_backtest_avg_net_ret_pct",
-                "planned_entry_date",
-                "planned_exit_date",
-                "rationale",
-            ] if c in filtered.columns]].copy()
-            for col in ["unlock_date", "planned_entry_date", "planned_exit_date", "turnover_first_signal_ts"]:
-                if col in view.columns:
-                    view[col] = pd.to_datetime(view[col], errors="coerce").dt.strftime("%Y-%m-%d")
-            st.dataframe(view, hide_index=True, use_container_width=True)
-            render_download_button("브리지 보드 CSV", filtered, f"minute_bridge_board_v{version.replace('.', '_')}.csv")
-            export_df = bridge_service.build_execution_bridge_export(filtered, unified_bundle, today=today, min_decision_rank=4)
-            if not export_df.empty:
-                render_download_button("자동화 브리지 CSV", export_df, f"execution_bridge_v{version.replace('.', '_')}.csv")
-            candidate = strategy_candidate_selector(filtered, key="minute_bridge_candidate")
-            if candidate is not None:
-                render_turnover_candidate_context(candidate, unified_bundle)
-
-    with t2:
-        summary = bridge_service.signal_summary(unified_bundle.signals, unified_bundle.misses)
-        st.markdown("**signal summary**")
-        if summary.empty:
-            st.info("signal summary를 만들 데이터가 없습니다.")
-        else:
-            st.dataframe(summary, hide_index=True, use_container_width=True)
-        st.markdown("**signal hits**")
-        if unified_bundle.signals.empty:
-            st.info("turnover_signals.csv가 비어 있습니다.")
-        else:
-            hits = unified_bundle.signals.copy()
-            for col in ["unlock_date", "entry_ts", "entry_trade_date"]:
-                if col in hits.columns:
-                    hits[col] = pd.to_datetime(hits[col], errors="coerce").dt.strftime("%Y-%m-%d %H:%M")
-            st.dataframe(hits.head(200), hide_index=True, use_container_width=True)
-            render_download_button("turnover_signals.csv 내려받기", unified_bundle.signals, "turnover_signals.csv")
-        st.markdown("**signal misses**")
-        if unified_bundle.misses.empty:
-            st.caption("miss 데이터가 없습니다.")
-        else:
-            misses = unified_bundle.misses.copy()
-            if "unlock_date" in misses.columns:
-                misses["unlock_date"] = pd.to_datetime(misses["unlock_date"], errors="coerce").dt.strftime("%Y-%m-%d")
-            st.dataframe(misses.head(200), hide_index=True, use_container_width=True)
-            render_download_button("turnover_signals_misses.csv 내려받기", unified_bundle.misses, "turnover_signals_misses.csv")
-
-    with t3:
-        st.markdown("**minute DB source 상태**")
-        if unified_bundle.source_status.empty:
-            st.info("source 상태가 없습니다.")
-        else:
-            st.dataframe(unified_bundle.source_status, hide_index=True, use_container_width=True)
-        st.markdown("**minute queue counts**")
-        if unified_bundle.minute_job_counts.empty:
-            st.info("minute queue counts가 없습니다.")
-        else:
-            st.dataframe(unified_bundle.minute_job_counts, hide_index=True, use_container_width=True)
-        st.markdown("**minute job preview**")
-        if unified_bundle.minute_job_preview.empty:
-            st.caption("minute job preview가 없습니다.")
-        else:
-            preview = unified_bundle.minute_job_preview.copy()
-            for col in ["job_unlock_date", "start_ts", "end_ts", "created_at", "updated_at"]:
-                if col in preview.columns:
-                    preview[col] = pd.to_datetime(preview[col], errors="coerce").dt.strftime("%Y-%m-%d %H:%M")
-            st.dataframe(preview, hide_index=True, use_container_width=True)
-        st.markdown("**minute bar stats**")
-        if unified_bundle.minute_bar_stats.empty:
-            st.caption("bar stats가 없습니다.")
-        else:
-            bar_stats = unified_bundle.minute_bar_stats.copy()
-            for col in ["min_ts", "max_ts"]:
-                if col in bar_stats.columns:
-                    bar_stats[col] = pd.to_datetime(bar_stats[col], errors="coerce").dt.strftime("%Y-%m-%d %H:%M")
-            st.dataframe(bar_stats, hide_index=True, use_container_width=True)
-        st.markdown("**unlock coverage**")
-        if unified_bundle.minute_symbol_coverage.empty:
-            st.caption("unlock coverage가 없습니다.")
-        else:
-            cov = unified_bundle.minute_symbol_coverage.copy()
-            for col in ["unlock_date", "min_ts", "max_ts"]:
-                if col in cov.columns:
-                    cov[col] = pd.to_datetime(cov[col], errors="coerce").dt.strftime("%Y-%m-%d %H:%M")
-            st.dataframe(cov, hide_index=True, use_container_width=True)
-
-    with t4:
-        term_summary = bridge_service.turnover_term_summary(unified_bundle.turnover_summary_raw)
-        st.markdown("**term edge summary**")
-        if term_summary.empty:
-            st.info("term 기준 edge 요약이 없습니다.")
-        else:
-            st.dataframe(term_summary, hide_index=True, use_container_width=True)
-        st.markdown("**turnover summary**")
-        if unified_bundle.turnover_summary_pretty.empty:
-            st.info("summary_all.csv가 없습니다.")
-        else:
-            st.dataframe(unified_bundle.turnover_summary_pretty, hide_index=True, use_container_width=True)
-        st.markdown("**annual summary**")
-        if not unified_bundle.turnover_annual_pretty.empty:
-            st.dataframe(unified_bundle.turnover_annual_pretty, hide_index=True, use_container_width=True)
-        st.markdown("**beta proxy summary**")
-        if unified_bundle.beta_summary.empty:
-            st.caption("beta proxy summary가 없습니다.")
-        else:
-            beta = unified_bundle.beta_summary.copy()
-            if "alpha_proxy" in beta.columns:
-                beta["alpha_proxy_pct"] = pd.to_numeric(beta["alpha_proxy"], errors="coerce") * 100.0
-            st.dataframe(beta, hide_index=True, use_container_width=True)
-        st.markdown("**turnover trades**")
-        if unified_bundle.turnover_trades.empty:
-            st.caption("turnover trades가 없습니다.")
-        else:
-            trades = unified_bundle.turnover_trades.copy()
-            for col in ["entry_dt", "exit_dt", "unlock_date"]:
-                if col in trades.columns:
-                    trades[col] = pd.to_datetime(trades[col], errors="coerce").dt.strftime("%Y-%m-%d")
-            st.dataframe(trades.head(200), hide_index=True, use_container_width=True)
-        st.markdown("**skip summary**")
-        if not unified_bundle.turnover_skip_summary.empty:
-            st.dataframe(unified_bundle.turnover_skip_summary, hide_index=True, use_container_width=True)
-        if not unified_bundle.turnover_skip_reasons.empty:
-            skip_reasons = unified_bundle.turnover_skip_reasons.copy()
-            if "unlock_date" in skip_reasons.columns:
-                skip_reasons["unlock_date"] = pd.to_datetime(skip_reasons["unlock_date"], errors="coerce").dt.strftime("%Y-%m-%d")
-            st.dataframe(skip_reasons.head(200), hide_index=True, use_container_width=True)
 
 
 def render_unlock_page(issues: pd.DataFrame, all_unlocks: pd.DataFrame, today: pd.Timestamp) -> None:
@@ -1985,6 +1578,15 @@ def build_month_calendar_html(events: pd.DataFrame, year: int, month: int, today
     return css + table
 
 
+def current_calendar_periods(today: pd.Timestamp, months: int = 6) -> list[pd.Period]:
+    base = pd.Period(pd.Timestamp(today).strftime("%Y-%m"), freq="M")
+    return [base + offset for offset in range(months)]
+
+
+def format_calendar_period(period: pd.Period) -> str:
+    return f"{period.year}년 {period.month:02d}월"
+
+
 def render_calendar_page(
     bundle: IPODataBundle,
     issues: pd.DataFrame,
@@ -1994,8 +1596,8 @@ def render_calendar_page(
     show_summary: bool = True,
 ) -> None:
     if show_header:
-        st.subheader("공모주 캘린더")
-        st.caption("앞으로의 청약, 상장, 보호예수 해제 일정을 월별 달력으로 봅니다.")
+        st.subheader("일정 캘린더")
+        st.caption("현재월부터 6개월 동안의 청약, 상장, 보호예수 해제 일정을 달력으로 봅니다.")
     repo = IPORepository(DATA_DIR)
     timeline = repo.build_event_timeline(issues, bundle.all_unlocks)
     if timeline.empty:
@@ -2006,48 +1608,36 @@ def render_calendar_page(
     timeline["date"] = pd.to_datetime(timeline["date"], errors="coerce")
     timeline = timeline.dropna(subset=["date"]).copy()
     timeline = timeline[timeline["date"] >= pd.Timestamp(today).normalize()].reset_index(drop=True)
-    if timeline.empty:
-        st.info("오늘 이후 일정이 없습니다.")
-        return
 
-    available_periods = sorted(timeline["date"].dt.to_period("M").dropna().unique().tolist())
-    if not available_periods:
-        st.info("표시할 월별 일정이 없습니다.")
-        return
-
-    default_period = pd.Period(pd.Timestamp(today).strftime("%Y-%m"), freq="M")
-    default_index = available_periods.index(default_period) if default_period in available_periods else 0
-    controls = st.columns([0.32, 0.38, 0.30])
+    period_options = current_calendar_periods(today, months=6)
+    period_labels = [format_calendar_period(period) for period in period_options]
+    label_to_period = {label: period for label, period in zip(period_labels, period_options)}
+    controls = st.columns([0.38, 0.62])
     selected_period_label = controls[0].selectbox(
-        "표시 월",
-        options=[str(period) for period in available_periods],
-        index=default_index,
+        "월 선택",
+        options=period_labels,
+        index=0,
         key=f"calendar_month_{'header' if show_header else 'dashboard'}",
     )
     selected_types = controls[1].multiselect(
-        "표시 이벤트",
+        "일정 종류",
         options=["청약시작", "청약종료", "상장", "보호예수해제"],
         default=["청약시작", "청약종료", "상장", "보호예수해제"],
         key=f"calendar_types_{'header' if show_header else 'dashboard'}",
     )
-    keyword = controls[2].text_input("종목명 검색", value="", key=f"calendar_keyword_{'header' if show_header else 'dashboard'}").strip()
 
-    selected_period = pd.Period(selected_period_label, freq="M")
+    selected_period = label_to_period[selected_period_label]
     month_events = timeline[
         (timeline["date"].dt.year == selected_period.year)
         & (timeline["date"].dt.month == selected_period.month)
     ].copy()
     if selected_types:
         month_events = month_events[month_events["event_type"].isin(selected_types)].copy()
-    if keyword:
-        month_events = month_events[
-            month_events["name"].fillna("").astype(str).str.contains(keyword, case=False, na=False)
-        ].copy()
 
     if show_summary:
         m1, m2, m3, m4 = st.columns(4)
-        m1.metric("월간 전체 일정", int(len(month_events)))
-        m2.metric("청약 일정", int(month_events["event_type"].isin(["청약시작", "청약종료"]).sum()) if not month_events.empty else 0)
+        m1.metric("이달 일정", int(len(month_events)))
+        m2.metric("청약", int(month_events["event_type"].isin(["청약시작", "청약종료"]).sum()) if not month_events.empty else 0)
         m3.metric("상장", int((month_events["event_type"] == "상장").sum()) if not month_events.empty else 0)
         m4.metric("보호예수해제", int((month_events["event_type"] == "보호예수해제").sum()) if not month_events.empty else 0)
 
@@ -2056,7 +1646,7 @@ def render_calendar_page(
     if show_header:
         st.markdown("**월간 일정 목록**")
     if month_events.empty:
-        st.info("선택 조건에 맞는 일정이 없습니다.")
+        st.info("선택한 달에는 일정이 없습니다.")
         return
 
     display = month_events.copy()
@@ -2064,7 +1654,6 @@ def render_calendar_page(
     display = display.rename(columns={"date": "날짜", "event_type": "이벤트", "name": "종목명", "symbol": "종목코드", "market": "시장", "detail": "상세"})
     st.dataframe(display[["날짜", "이벤트", "종목명", "종목코드", "시장", "상세"]], hide_index=True, use_container_width=True)
     render_download_button("월간 일정 CSV 내려받기", display, f"ipo_calendar_{selected_period}.csv")
-
 
 
 
@@ -2487,7 +2076,7 @@ def render_shorts_studio_page(bundle: IPODataBundle, issues: pd.DataFrame, today
     studio = ShortsStudioService(DATA_DIR)
 
     c1, c2, c3 = st.columns([1.2, 0.8, 0.8])
-    title = c1.text_input("쇼츠 제목", value=f"공모주 레이더 데일리 {pd.Timestamp(today).strftime('%Y-%m-%d')}")
+    title = c1.text_input("쇼츠 제목", value=f"공모주 알리미 데일리 {pd.Timestamp(today).strftime('%Y-%m-%d')}")
     window_days = c2.slider("일정 포함 기간", min_value=3, max_value=14, value=7, step=1)
     create_video = c3.checkbox("MP4도 함께 생성", value=False)
 
@@ -2821,7 +2410,7 @@ def render_settings_page(source_mode: str, prefer_live: bool, external_unlock_pa
 
 
 
-def render_strategy_lab_page(
+def render_lab_page(
     bundle: IPODataBundle,
     issues: pd.DataFrame,
     today: pd.Timestamp,
@@ -2830,22 +2419,38 @@ def render_strategy_lab_page(
     unified_bundle: UnifiedLabBundle,
     unified_workspace_path: str,
     allow_packaged_sample: bool,
+    source_mode: str,
 ) -> None:
-    st.subheader("전략 연구실")
+    if not render_experimental_lab_gate():
+        return
+    st.subheader("실험실")
+    if getattr(unified_bundle.paths, "workspace", None) is not None:
+        workspace_label = str(unified_bundle.paths.workspace)
+        if "sample_unified_lab_workspace" in workspace_label:
+            st.caption("전략 연구실은 내장 데모 workspace를 기준으로 열었습니다.")
     if not unified_bundle.source_status.empty and "ok" in unified_bundle.source_status.columns:
         failed = unified_bundle.source_status[~unified_bundle.source_status["ok"].fillna(False)]
-        if not failed.empty:
-            first_detail = str(failed.iloc[0].get("detail") or "")
-            st.warning(f"Unified Lab 일부 로딩에 실패했습니다. 해당 기능은 비어 보일 수 있습니다. {first_detail}")
-    tabs = st.tabs(["락업 실행보드", "5분봉 브리지", "전략 브릿지", "턴오버 전략"])
+        hard_fail = failed[~failed["source"].astype(str).isin(["turnover summary", "turnover trades", "turnover skip summary", "beta summary", "minute bar stats"])]
+        if not hard_fail.empty:
+            first_detail = str(hard_fail.iloc[0].get("detail") or "")
+            st.warning(f"Unified Lab 핵심 입력 일부가 비어 있습니다. {first_detail}")
+    tabs = st.tabs(["전략 연구실", "백테스트", "쇼츠 스튜디오"])
     with tabs[0]:
-        render_lockup_strategy_page(bundle, issues, today, version, prefer_live, unified_bundle)
+        inner_tabs = st.tabs(["락업 실행보드", "5분봉 브리지", "전략 브릿지", "턴오버 전략"])
+        with inner_tabs[0]:
+            render_lockup_strategy_page(bundle, issues, today, version, prefer_live, unified_bundle)
+        with inner_tabs[1]:
+            render_minute_bridge_page(bundle, issues, today, version, unified_bundle)
+        with inner_tabs[2]:
+            render_strategy_bridge_page(bundle, issues, today, version)
+        with inner_tabs[3]:
+            active_workspace_path = str(unified_bundle.paths.workspace or unified_workspace_path or "")
+            render_turnover_research_page(unified_bundle, active_workspace_path, today, allow_packaged_sample)
     with tabs[1]:
-        render_minute_bridge_page(bundle, issues, today, version, unified_bundle)
+        render_backtest_page(issues, today)
     with tabs[2]:
-        render_strategy_bridge_page(bundle, issues, today, version)
-    with tabs[3]:
-        render_turnover_research_page(unified_bundle, unified_workspace_path, today, allow_packaged_sample)
+        render_shorts_studio_page(bundle, issues, today, source_mode)
+
 
 
 def render_data_admin_page(
@@ -2869,7 +2474,7 @@ def render_data_admin_page(
 
 
 def main() -> None:
-    st.title("공모주 레이더")
+    st.title("공모주 알리미")
 
     repo = IPORepository(DATA_DIR)
     unified_service = UnifiedLabBridgeService(DATA_DIR)
@@ -2877,7 +2482,7 @@ def main() -> None:
     sidebar.header("앱 설정")
     page = sidebar.radio(
         "메뉴",
-        ["대시보드", "딜 탐색기", "청약", "상장", "보호예수", "전략 연구실", "백테스트", "쇼츠 스튜디오", "데이터 / 설정"],
+        ["대시보드", "딜 탐색기", "청약", "상장", "보호예수", "실험실", "데이터 / 설정"],
     )
     source_mode = sidebar.selectbox("데이터 모드", ["실데이터 우선", "캐시 우선", "샘플만"], index=1)
     sidebar.caption("기본값은 캐시 우선입니다. 실시간 확인이 필요할 때만 실데이터 우선으로 바꾸면 됩니다.")
@@ -2913,11 +2518,17 @@ def main() -> None:
     resolved_unified_workspace_path = unified_workspace_path or str(resolved_paths.workspace or "")
 
     today = pd.Timestamp(sidebar.date_input("기준일", value=pd.Timestamp.now(tz="Asia/Seoul").date()))
-    strategy_pages = {"대시보드", "전략 연구실"}
     backtest_versions = BacktestRepository(DATA_DIR).available_versions()
     backtest_version = backtest_versions[0]
-    if page in strategy_pages:
+    if page == "실험실":
         backtest_version = sidebar.selectbox("락업 전략 기준 버전", options=backtest_versions, index=0)
+        configured_lab_password = experimental_lab_password()
+        if configured_lab_password and st.session_state.get("lab_unlocked"):
+            sidebar.success("실험실 잠금 해제됨")
+        elif configured_lab_password:
+            sidebar.warning("실험실 잠금 사용 중")
+        else:
+            sidebar.caption("실험실 비밀번호 미설정")
 
     unified_bundle = empty_unified_bundle()
     if page in PAGES_REQUIRING_UNIFIED:
@@ -2942,25 +2553,18 @@ def main() -> None:
         assert bundle is not None
         render_explorer(bundle, prefer_live)
     elif page == "청약":
-        render_subscription_page(issues)
+        render_subscription_page(issues, today)
     elif page == "상장":
-        render_listing_page(issues, prefer_live)
+        render_listing_page(issues, prefer_live, today)
     elif page == "보호예수":
         assert bundle is not None
         render_unlock_page(issues, bundle.all_unlocks, today)
-    elif page == "전략 연구실":
+    elif page == "실험실":
         assert bundle is not None
-        render_strategy_lab_page(bundle, issues, today, backtest_version, prefer_live, unified_bundle, resolved_unified_workspace_path, allow_packaged_sample)
-    elif page == "백테스트":
-        render_backtest_page(issues, today)
-    elif page == "쇼츠 스튜디오":
-        assert bundle is not None
-        render_shorts_studio_page(bundle, issues, today, source_mode)
+        render_lab_page(bundle, issues, today, backtest_version, prefer_live, unified_bundle, resolved_unified_workspace_path, allow_packaged_sample, source_mode)
     else:
         assert bundle is not None
         render_data_admin_page(bundle, source_mode, prefer_live, allow_sample_fallback, unified_bundle, resolved_unified_workspace_path, resolved_external_unlock_path, local_kind_export_path)
-
-
 
 
 if __name__ == "__main__":
