@@ -8,14 +8,19 @@ from urllib.parse import quote
 import pandas as pd
 import requests
 
+try:
+    from pykrx import stock as pykrx_stock
+except Exception:  # pragma: no cover - optional runtime dependency
+    pykrx_stock = None
+
 from src.services.kis_client import KISClient
 from src.services.live_cache import LiveCacheStore
 from src.utils import data_dir, safe_float, today_kst
 
 
 MARKET_SPECS: list[dict[str, Any]] = [
-    {"name": "KOSPI", "ticker": "^KS11", "group": "국내지수", "providers": ["kis_domestic_index", "yahoo_http"], "kis_index_code": "0001"},
-    {"name": "KOSDAQ", "ticker": "^KQ11", "group": "국내지수", "providers": ["kis_domestic_index", "yahoo_http"], "kis_index_code": "1001"},
+    {"name": "KOSPI", "ticker": "^KS11", "group": "국내지수", "providers": ["kis_domestic_index", "pykrx_index", "yahoo_http"], "kis_index_code": "0001", "pykrx_market": "KOSPI"},
+    {"name": "KOSDAQ", "ticker": "^KQ11", "group": "국내지수", "providers": ["kis_domestic_index", "pykrx_index", "yahoo_http"], "kis_index_code": "1001", "pykrx_market": "KOSDAQ"},
     {"name": "USD/KRW", "ticker": "KRW=X", "group": "환율", "providers": ["yahoo_http"]},
     {"name": "S&P 500", "ticker": "^GSPC", "group": "해외지수", "providers": ["yahoo_http"]},
     {"name": "NASDAQ", "ticker": "^IXIC", "group": "해외지수", "providers": ["yahoo_http"]},
@@ -62,6 +67,7 @@ class MarketService:
         diagnostics: list[dict[str, Any]] = []
         cached = self._read_cached_frame("market_snapshot_last_success", SNAPSHOT_COLUMNS)
         cached_meta = self.cache.read_meta("market_snapshot_last_success")
+        cached_saved_at = str(cached_meta.get("saved_at") or "").strip()
 
         if prefer_live:
             live_frame, providers, live_diag = self._fetch_live_snapshot()
@@ -73,6 +79,7 @@ class MarketService:
                 source = f"live({'+'.join(sorted(providers))})" if providers else "live"
                 if used_cache_rows:
                     source = f"{source}+cache_fresher"
+                saved_at = pd.Timestamp.now(tz="Asia/Seoul").tz_localize(None).isoformat()
                 self.cache.write_frame(
                     "market_snapshot_last_success",
                     merged_live,
@@ -85,6 +92,7 @@ class MarketService:
                 return {
                     "frame": merged_live,
                     "source": source,
+                    "saved_at": saved_at,
                     "diagnostics": pd.DataFrame(live_diag, columns=DIAG_COLUMNS),
                     "cached_used": used_cache_rows,
                     "sample_used": False,
@@ -93,6 +101,7 @@ class MarketService:
                 return {
                     "frame": cached,
                     "source": self._cache_source_label(cached_meta, default="cache(last_success)"),
+                    "saved_at": cached_saved_at,
                     "diagnostics": pd.DataFrame(live_diag, columns=DIAG_COLUMNS),
                     "cached_used": True,
                     "sample_used": False,
@@ -103,6 +112,7 @@ class MarketService:
             return {
                 "frame": cached,
                 "source": self._cache_source_label(cached_meta, default="cache(last_success)"),
+                "saved_at": cached_saved_at,
                 "diagnostics": diagnostics_df,
                 "cached_used": True,
                 "sample_used": False,
@@ -112,6 +122,7 @@ class MarketService:
             return {
                 "frame": self.load_sample_snapshot(),
                 "source": "sample",
+                "saved_at": None,
                 "diagnostics": pd.DataFrame(diagnostics, columns=DIAG_COLUMNS),
                 "cached_used": False,
                 "sample_used": True,
@@ -119,6 +130,7 @@ class MarketService:
         return {
             "frame": pd.DataFrame(columns=SNAPSHOT_COLUMNS),
             "source": "unavailable",
+            "saved_at": None,
             "diagnostics": pd.DataFrame(diagnostics, columns=DIAG_COLUMNS),
             "cached_used": False,
             "sample_used": False,
@@ -139,6 +151,7 @@ class MarketService:
         history_key = self._history_cache_key(ticker, period)
         cached = self._read_cached_frame(history_key, HISTORY_COLUMNS)
         cached_meta = self.cache.read_meta(history_key)
+        cached_saved_at = str(cached_meta.get("saved_at") or "").strip()
         diagnostics: list[dict[str, Any]] = []
 
         if prefer_live:
@@ -147,6 +160,7 @@ class MarketService:
             self._write_diagnostics(f"{history_key}_diag_latest", live_diag)
             if not live_frame.empty:
                 source = f"live({provider})" if provider else "live"
+                saved_at = pd.Timestamp.now(tz="Asia/Seoul").tz_localize(None).isoformat()
                 self.cache.write_frame(
                     history_key,
                     live_frame,
@@ -158,6 +172,7 @@ class MarketService:
                 return {
                     "frame": live_frame,
                     "source": source,
+                    "saved_at": saved_at,
                     "diagnostics": pd.DataFrame(live_diag, columns=DIAG_COLUMNS),
                     "cached_used": False,
                     "sample_used": False,
@@ -166,6 +181,7 @@ class MarketService:
                 return {
                     "frame": cached,
                     "source": self._cache_source_label(cached_meta, default="cache(last_success)"),
+                    "saved_at": cached_saved_at,
                     "diagnostics": pd.DataFrame(live_diag, columns=DIAG_COLUMNS),
                     "cached_used": True,
                     "sample_used": False,
@@ -176,6 +192,7 @@ class MarketService:
             return {
                 "frame": cached,
                 "source": self._cache_source_label(cached_meta, default="cache(last_success)"),
+                "saved_at": cached_saved_at,
                 "diagnostics": diagnostics_df,
                 "cached_used": True,
                 "sample_used": False,
@@ -188,6 +205,7 @@ class MarketService:
             return {
                 "frame": out,
                 "source": "sample",
+                "saved_at": None,
                 "diagnostics": pd.DataFrame(diagnostics, columns=DIAG_COLUMNS),
                 "cached_used": False,
                 "sample_used": True,
@@ -195,6 +213,7 @@ class MarketService:
         return {
             "frame": pd.DataFrame(columns=HISTORY_COLUMNS),
             "source": "unavailable",
+            "saved_at": None,
             "diagnostics": pd.DataFrame(diagnostics, columns=DIAG_COLUMNS),
             "cached_used": False,
             "sample_used": False,
@@ -369,6 +388,34 @@ class MarketService:
                 diagnostics.append(self._diag_row("snapshot", spec, "KIS", False, str(exc)))
 
         for spec in MARKET_SPECS:
+            if "pykrx_index" not in spec.get("providers", []) or spec["ticker"] in row_map:
+                continue
+            try:
+                hist = self._fetch_pykrx_index_history(str(spec.get("pykrx_market") or ""), lookback_days=10)
+                if hist.empty:
+                    raise RuntimeError("empty history")
+                last_close = hist["close"].dropna()
+                if last_close.empty:
+                    raise RuntimeError("close is empty")
+                last = float(last_close.iloc[-1])
+                prev = float(last_close.iloc[-2]) if len(last_close) >= 2 else last
+                change_pct = ((last / prev) - 1.0) * 100 if prev else 0.0
+                asof_value = pd.to_datetime(hist["date"].dropna().iloc[-1], errors="coerce")
+                row_map[spec["ticker"]] = {
+                    "name": spec["name"],
+                    "group": spec["group"],
+                    "ticker": spec["ticker"],
+                    "last": round(last, 2),
+                    "change_pct": round(change_pct, 2),
+                    "asof": asof_value if not pd.isna(asof_value) else now,
+                    "provider": "PyKRX",
+                }
+                diagnostics.append(self._diag_row("snapshot", spec, "PyKRX", True, "OK", rows=int(len(hist))))
+                providers_used.add("PyKRX")
+            except Exception as exc:
+                diagnostics.append(self._diag_row("snapshot", spec, "PyKRX", False, str(exc)))
+
+        for spec in MARKET_SPECS:
             if "yahoo_http" not in spec.get("providers", []) or spec["ticker"] in row_map:
                 continue
             try:
@@ -446,6 +493,19 @@ class MarketService:
         elif "kis_domestic_index" in spec.get("providers", []):
             diagnostics.append(self._diag_row("history", spec, "KIS", False, "KIS 환경변수가 없어 국내지수 이력 조회를 건너뜀"))
 
+        if "pykrx_index" in spec.get("providers", []):
+            try:
+                out = self._fetch_pykrx_index_history(str(spec.get("pykrx_market") or ""), lookback_days=self._period_days(period))
+                if out.empty:
+                    raise RuntimeError("empty history")
+                out["ticker"] = spec["ticker"]
+                out["provider"] = "PyKRX"
+                out = self._ensure_history_columns(out.dropna().sort_values("date").reset_index(drop=True))
+                diagnostics.append(self._diag_row("history", spec, "PyKRX", True, "OK", rows=int(len(out))))
+                return out, "PyKRX", diagnostics
+            except Exception as exc:
+                diagnostics.append(self._diag_row("history", spec, "PyKRX", False, str(exc)))
+
         if "yahoo_http" in spec.get("providers", []):
             try:
                 out = self._fetch_yahoo_chart_frame(spec["ticker"], period=period)
@@ -460,6 +520,59 @@ class MarketService:
                 diagnostics.append(self._diag_row("history", spec, "YahooHTTP", False, str(exc)))
 
         return pd.DataFrame(columns=HISTORY_COLUMNS), None, diagnostics
+
+    def _fetch_pykrx_index_history(self, market_name: str, *, lookback_days: int) -> pd.DataFrame:
+        if pykrx_stock is None:
+            raise RuntimeError("pykrx unavailable")
+        market_name = str(market_name or "").strip().upper()
+        if market_name not in {"KOSPI", "KOSDAQ"}:
+            raise RuntimeError("unknown pykrx market")
+        end = pd.Timestamp.now(tz="Asia/Seoul").tz_localize(None).normalize()
+        start = end - pd.Timedelta(days=max(int(lookback_days or 0), 10))
+        ticker = self._resolve_pykrx_index_ticker(market_name, end)
+        if not ticker:
+            raise RuntimeError(f"pykrx ticker not found for {market_name}")
+        raw = pykrx_stock.get_index_ohlcv(start.strftime("%Y%m%d"), end.strftime("%Y%m%d"), ticker)
+        if raw is None or raw.empty:
+            raise RuntimeError("empty pykrx ohlcv")
+        work = raw.copy().reset_index()
+        date_col = work.columns[0]
+        close_col = None
+        for candidate in work.columns:
+            label = str(candidate).strip()
+            if label == "종가" or label.endswith("종가"):
+                close_col = candidate
+                break
+        if close_col is None:
+            raise RuntimeError("pykrx close column missing")
+        work = work.rename(columns={date_col: "date", close_col: "close"})
+        work["date"] = pd.to_datetime(work["date"], errors="coerce")
+        work["close"] = pd.to_numeric(work["close"], errors="coerce")
+        work = work[["date", "close"]].dropna().sort_values("date").reset_index(drop=True)
+        if work.empty:
+            raise RuntimeError("empty normalized pykrx history")
+        return work
+
+    def _resolve_pykrx_index_ticker(self, market_name: str, asof: pd.Timestamp) -> str | None:
+        if pykrx_stock is None:
+            return None
+        date_str = pd.Timestamp(asof).strftime("%Y%m%d")
+        try:
+            tickers = pykrx_stock.get_index_ticker_list(date_str, market=market_name)
+        except TypeError:
+            tickers = pykrx_stock.get_index_ticker_list(date_str, market_name)
+        exact_names = {"KOSPI": {"코스피"}, "KOSDAQ": {"코스닥", "코스닥지수"}}
+        fallback_matches: list[tuple[str, str]] = []
+        for code in tickers or []:
+            try:
+                name = str(pykrx_stock.get_index_ticker_name(code) or "").strip()
+            except Exception:
+                continue
+            if name in exact_names.get(market_name, set()):
+                return str(code)
+            if (market_name == "KOSPI" and "코스피" in name) or (market_name == "KOSDAQ" and "코스닥" in name):
+                fallback_matches.append((str(code), name))
+        return fallback_matches[0][0] if fallback_matches else None
 
     def _fetch_yahoo_chart_frame(self, ticker: str, *, period: str) -> pd.DataFrame:
         range_value = self._yahoo_range(period)
@@ -550,9 +663,10 @@ class MarketService:
 
     @staticmethod
     def _cache_source_label(meta: dict[str, Any], default: str = "cache") -> str:
-        saved_at = str(meta.get("saved_at") or "").strip()
-        source = str(meta.get("source") or default)
-        return f"{source} @ {saved_at}" if saved_at else source
+        source = str(meta.get("source") or "").strip()
+        if source and source != default:
+            return f"{default}←{source}"
+        return default
 
     @staticmethod
     def _history_cache_key(ticker: str, period: str) -> str:

@@ -3,6 +3,7 @@ from __future__ import annotations
 import calendar
 import json
 import os
+import re
 from html import escape
 from pathlib import Path
 from typing import Any
@@ -33,7 +34,7 @@ from src.utils import detect_project_env_file, fmt_date, fmt_num, fmt_pct, fmt_r
 
 APP_ROOT = Path(__file__).resolve().parent
 DATA_DIR = APP_ROOT / "data"
-CACHE_REV = "20260331_v18_lab_restore_ui_refresh"
+CACHE_REV = "20260401_v19_market_pykrx_tables"
 
 PAGES_REQUIRING_BUNDLE = {
     "대시보드",
@@ -420,11 +421,15 @@ def compact_date_range_text(start_value: Any, end_value: Any, default: str = "-"
         return compact_date_text(end_ts, default=default)
     if pd.isna(end_ts):
         return compact_date_text(start_ts, default=default)
-    start_fmt = pd.Timestamp(start_ts).strftime("%y.%m.%d")
-    if pd.Timestamp(start_ts).year == pd.Timestamp(end_ts).year:
-        end_fmt = pd.Timestamp(end_ts).strftime("%m.%d")
+    start_ts = pd.Timestamp(start_ts)
+    end_ts = pd.Timestamp(end_ts)
+    start_fmt = start_ts.strftime("%y.%m.%d")
+    if start_ts.year == end_ts.year and start_ts.month == end_ts.month:
+        end_fmt = end_ts.strftime("%d")
+    elif start_ts.year == end_ts.year:
+        end_fmt = end_ts.strftime("%m.%d")
     else:
-        end_fmt = pd.Timestamp(end_ts).strftime("%y.%m.%d")
+        end_fmt = end_ts.strftime("%y.%m.%d")
     return f"{start_fmt}~{end_fmt}"
 
 
@@ -452,6 +457,59 @@ def compact_ratio_text(value: Any, digits: int = 1, signed: bool = False, defaul
     if number is None:
         return default
     return fmt_pct(number, digits=digits, signed=signed)
+
+
+def compact_datetime_text(value: Any, default: str = "-") -> str:
+    ts = pd.to_datetime(value, errors="coerce")
+    if pd.isna(ts):
+        return default
+    ts = pd.Timestamp(ts)
+    if ts.hour == 0 and ts.minute == 0 and ts.second == 0:
+        return ts.strftime("%y.%m.%d")
+    return ts.strftime("%y.%m.%d %H:%M")
+
+
+def market_asof_summary(snapshot: pd.DataFrame) -> str:
+    if not isinstance(snapshot, pd.DataFrame) or snapshot.empty or "asof" not in snapshot.columns:
+        return "-"
+    work = snapshot.copy()
+    work["asof"] = pd.to_datetime(work["asof"], errors="coerce")
+    work = work.dropna(subset=["asof"])
+    if work.empty:
+        return "-"
+    group_series = work["group"].astype(str) if "group" in work.columns else pd.Series([""] * len(work), index=work.index, dtype="object")
+    domestic = work[group_series == "국내지수"]
+    other = work[group_series != "국내지수"]
+    parts: list[str] = []
+    if not domestic.empty:
+        parts.append(f"국내지수 기준 {compact_datetime_text(domestic['asof'].max())}")
+    if not other.empty:
+        parts.append(f"기타 자산 기준 {compact_datetime_text(other['asof'].max())}")
+    return " · ".join(parts) if parts else "-"
+
+
+def render_scrollable_table(df: pd.DataFrame, key: str) -> None:
+    if df.empty:
+        st.info("표시할 데이터가 없습니다.")
+        return
+    work = df.copy().fillna("-")
+    safe_key = re.sub(r"[^a-zA-Z0-9_-]+", "-", str(key))
+    table_class = f"ipo-table-{safe_key}"
+    html = work.astype(str).to_html(index=False, escape=True, border=0, classes=[table_class])
+    st.markdown(
+        f"""
+        <style>
+        .ipo-table-wrap {{overflow-x: auto; width: 100%; border: 1px solid rgba(49, 51, 63, 0.2); border-radius: 0.5rem;}}
+        table.{table_class} {{width: 100%; border-collapse: collapse; table-layout: auto; font-size: 0.84rem;}}
+        table.{table_class} thead th {{position: sticky; top: 0; background: rgba(250, 250, 250, 0.98); z-index: 1;}}
+        table.{table_class} th, table.{table_class} td {{padding: 0.38rem 0.5rem; white-space: nowrap; text-overflow: clip; overflow: visible;}}
+        table.{table_class} tbody tr:nth-child(even) {{background: rgba(250, 250, 250, 0.55);}}
+        </style>
+        <div class="ipo-table-wrap">{html}</div>
+        """,
+        unsafe_allow_html=True,
+    )
+
 
 def normalized_string_options(values: Any) -> list[str]:
     if isinstance(values, pd.Series):
@@ -1038,7 +1096,14 @@ def render_dashboard(
     info_cols[3].metric("시장 분위기", str(mood.get("label") or "데이터없음"), mood_delta)
 
     render_sample_data_warning(source_mode, issue_counts, snapshot_source)
-    st.caption(f"시장 소스: {snapshot_source}")
+    snapshot_saved_at = snapshot_bundle.get("saved_at")
+    snapshot_asof = market_asof_summary(snapshot)
+    caption_bits = [f"시장 소스: {snapshot_source}"]
+    if snapshot_asof != "-":
+        caption_bits.append(snapshot_asof)
+    if has_value(snapshot_saved_at):
+        caption_bits.append(f"저장 {compact_datetime_text(snapshot_saved_at)}")
+    st.caption(" · ".join(caption_bits))
     st.markdown("---")
     render_calendar_page(bundle, issues, today, show_header=False, show_summary=False)
 
@@ -1211,7 +1276,7 @@ def render_subscription_page(issues: pd.DataFrame, today: pd.Timestamp) -> None:
                 "점수": sorted_df.get("subscription_score").map(lambda v: fmt_num(v, 1)),
             }
         )
-        st.dataframe(display, hide_index=True, use_container_width=True)
+        render_scrollable_table(display, key="subscription_table")
         render_download_button("청약 후보 CSV 내려받기", display, "subscriptions.csv")
 
         issue = issue_selector(sorted_df, key="subscription_issue")
@@ -1272,7 +1337,7 @@ def render_listing_page(issues: pd.DataFrame, prefer_live: bool, today: pd.Times
             "점수": sorted_target.get("listing_quality_score").map(lambda v: fmt_num(v, 1)),
         }
     )
-    st.dataframe(display, hide_index=True, use_container_width=True)
+    render_scrollable_table(display, key="listing_table")
     render_download_button("상장 종목 CSV 내려받기", display, "listings.csv")
 
     issue = issue_selector(sorted_target, key="listing_issue")
@@ -1977,7 +2042,15 @@ def render_market_page(prefer_live: bool, allow_sample_fallback: bool, source_mo
     market_service = MarketService(DATA_DIR, kis_client=KISClient.from_env())
     mood = market_service.market_mood(snapshot)
     render_sample_data_warning(source_mode, {"sample": 0, "real": 0}, source)
-    st.caption(f"스냅샷 소스: {source} · 시장 분위기: {mood['label']} ({mood['score']})")
+    snapshot_saved_at = snapshot_bundle.get("saved_at")
+    snapshot_asof = market_asof_summary(snapshot)
+    top_caption = [f"스냅샷 소스: {source}"]
+    if snapshot_asof != "-":
+        top_caption.append(snapshot_asof)
+    if has_value(snapshot_saved_at):
+        top_caption.append(f"저장 {compact_datetime_text(snapshot_saved_at)}")
+    top_caption.append(f"시장 분위기: {mood['label']} ({mood['score']})")
+    st.caption(" · ".join(top_caption))
 
     failed = snapshot_diag[~snapshot_diag["ok"].fillna(False)] if isinstance(snapshot_diag, pd.DataFrame) and not snapshot_diag.empty and "ok" in snapshot_diag.columns else pd.DataFrame()
     if str(source).startswith("cache("):
@@ -2000,8 +2073,16 @@ def render_market_page(prefer_live: bool, allow_sample_fallback: bool, source_mo
     history_bundle = load_market_history_bundle_cached(str(row["ticker"]), prefer_live=prefer_live, period=period, allow_sample_fallback=allow_sample_fallback)
     history = history_bundle["frame"]
     hist_source = history_bundle["source"]
+    history_saved_at = history_bundle.get("saved_at")
     history_diag = history_bundle.get("diagnostics", pd.DataFrame())
-    st.caption(f"차트 소스: {hist_source}")
+    hist_caption = [f"차트 소스: {hist_source}"]
+    if not history.empty and "date" in history.columns:
+        hist_dates = pd.to_datetime(history["date"], errors="coerce").dropna()
+        if not hist_dates.empty:
+            hist_caption.append(f"기준 {compact_datetime_text(hist_dates.max())}")
+    if has_value(history_saved_at):
+        hist_caption.append(f"저장 {compact_datetime_text(history_saved_at)}")
+    st.caption(" · ".join(hist_caption))
     if not history.empty:
         chart = history[["date", "close"]].rename(columns={"date": "날짜", "close": selected_name}).set_index("날짜")
         st.line_chart(chart)
