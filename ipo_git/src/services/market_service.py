@@ -68,10 +68,14 @@ class MarketService:
             diagnostics.extend(live_diag)
             self._write_diagnostics("market_snapshot_diag_latest", live_diag)
             if not live_frame.empty:
+                merged_live = self._merge_snapshot_with_cached(live_frame, cached)
+                used_cache_rows = bool(not cached.empty and len(merged_live) >= len(live_frame) and not merged_live.equals(live_frame))
                 source = f"live({'+'.join(sorted(providers))})" if providers else "live"
+                if used_cache_rows:
+                    source = f"{source}+cache_fresher"
                 self.cache.write_frame(
                     "market_snapshot_last_success",
-                    live_frame,
+                    merged_live,
                     meta={
                         "source": source,
                         "provider_count": len(providers),
@@ -79,10 +83,10 @@ class MarketService:
                     },
                 )
                 return {
-                    "frame": live_frame,
+                    "frame": merged_live,
                     "source": source,
                     "diagnostics": pd.DataFrame(live_diag, columns=DIAG_COLUMNS),
-                    "cached_used": False,
+                    "cached_used": used_cache_rows,
                     "sample_used": False,
                 }
             if not cached.empty:
@@ -280,6 +284,58 @@ class MarketService:
         else:
             label = "중립"
         return {"label": label, "score": round(score, 2)}
+
+
+    def _merge_snapshot_with_cached(self, live_frame: pd.DataFrame, cached_frame: pd.DataFrame) -> pd.DataFrame:
+        if live_frame.empty:
+            return cached_frame.copy()
+        if cached_frame.empty:
+            return live_frame.copy()
+
+        live_work = live_frame.copy()
+        cached_work = cached_frame.copy()
+        live_work["ticker"] = live_work.get("ticker", pd.Series(dtype="object")).astype(str)
+        cached_work["ticker"] = cached_work.get("ticker", pd.Series(dtype="object")).astype(str)
+
+        rows: list[dict[str, Any]] = []
+        for ticker in sorted(set(live_work["ticker"]).union(set(cached_work["ticker"]))):
+            live_row = live_work[live_work["ticker"] == ticker].tail(1)
+            cached_row = cached_work[cached_work["ticker"] == ticker].tail(1)
+            chosen = self._pick_fresher_snapshot_row(
+                live_row.iloc[0] if not live_row.empty else None,
+                cached_row.iloc[0] if not cached_row.empty else None,
+            )
+            if chosen is None:
+                continue
+            rows.append(dict(chosen))
+        out = pd.DataFrame(rows, columns=SNAPSHOT_COLUMNS)
+        if out.empty:
+            return out
+        return out.sort_values(["group", "name"]).reset_index(drop=True)
+
+    @staticmethod
+    def _pick_fresher_snapshot_row(live_row: pd.Series | None, cached_row: pd.Series | None) -> pd.Series | None:
+        if live_row is None:
+            return cached_row
+        if cached_row is None:
+            return live_row
+
+        live_asof = pd.to_datetime(live_row.get("asof"), errors="coerce")
+        cached_asof = pd.to_datetime(cached_row.get("asof"), errors="coerce")
+        live_last = safe_float(live_row.get("last"))
+        cached_last = safe_float(cached_row.get("last"))
+
+        if live_last is None and cached_last is not None:
+            return cached_row
+        if cached_last is None and live_last is not None:
+            return live_row
+        if pd.isna(live_asof) and not pd.isna(cached_asof):
+            return cached_row
+        if pd.isna(cached_asof) and not pd.isna(live_asof):
+            return live_row
+        if not pd.isna(cached_asof) and not pd.isna(live_asof) and cached_asof > live_asof:
+            return cached_row
+        return live_row
 
     def _fetch_live_snapshot(self) -> tuple[pd.DataFrame, set[str], list[dict[str, Any]]]:
         diagnostics: list[dict[str, Any]] = []
