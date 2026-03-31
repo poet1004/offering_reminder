@@ -1,0 +1,11 @@
+streamlit>=1.33
+pandas>=2.0
+requests>=2.31
+python-dateutil>=2.9
+lxml>=5.2
+html5lib>=1.1
+openpyxl>=3.1
+mojito2
+Pillow>=10.0
+imageio>=2.34
+imageio-ffmpeg>=0.5
