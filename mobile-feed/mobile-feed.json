@@ -1,7 +1,7 @@
 {
   "appName": "공모주 알리미",
-  "generatedAt": "2026-04-08T14:35:21.954848+00:00",
-  "source": "/tmp/mobile_pipeline_v2/offering_reminder_mobile_pipeline_v2/ipo_git",
+  "generatedAt": "2026-04-08T15:06:09.280450+00:00",
+  "source": "/home/runner/work/offering_reminder/offering_reminder/ipo_git",
   "sources": {
     "issuesCsv": "data/cache/schedule_38_live.csv",
     "marketCsv": "data/cache/market_snapshot_last_success.csv"
