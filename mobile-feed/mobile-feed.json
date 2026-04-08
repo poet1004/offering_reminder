@@ -1,6 +1,6 @@
 {
   "appName": "공모주 알리미",
-  "generatedAt": "2026-04-08T15:06:09.280450+00:00",
+  "generatedAt": "2026-04-08T16:05:25.810486+00:00",
   "source": "/home/runner/work/offering_reminder/offering_reminder/ipo_git",
   "sources": {
     "issuesCsv": "data/cache/schedule_38_live.csv",
