@@ -10,6 +10,7 @@ from typing import Any
 
 import pandas as pd
 import streamlit as st
+import streamlit.components.v1 as components
 
 st.set_page_config(page_title="공모주 알리미", page_icon="📊", layout="wide")
 
@@ -34,7 +35,7 @@ from src.utils import detect_project_env_file, fmt_date, fmt_num, fmt_pct, fmt_r
 
 APP_ROOT = Path(__file__).resolve().parent
 DATA_DIR = APP_ROOT / "data"
-CACHE_REV = "20260401_v19_market_pykrx_tables"
+CACHE_REV = "20260401_v20_naver_index_html_tables"
 
 PAGES_REQUIRING_BUNDLE = {
     "대시보드",
@@ -492,23 +493,47 @@ def render_scrollable_table(df: pd.DataFrame, key: str) -> None:
     if df.empty:
         st.info("표시할 데이터가 없습니다.")
         return
+
     work = df.copy().fillna("-")
     safe_key = re.sub(r"[^a-zA-Z0-9_-]+", "-", str(key))
     table_class = f"ipo-table-{safe_key}"
-    html = work.astype(str).to_html(index=False, escape=True, border=0, classes=[table_class])
-    st.markdown(
-        f"""
+
+    columns = [str(col) for col in work.columns]
+    header_html = "".join(f"<th>{escape(col)}</th>" for col in columns)
+    body_rows: list[str] = []
+    for _, row in work.iterrows():
+        cells: list[str] = []
+        for col in columns:
+            value = row.get(col)
+            text_cell = "-" if not has_value(value) else str(value)
+            cells.append(f'<td title="{escape(text_cell)}">{escape(text_cell)}</td>')
+        body_rows.append("<tr>" + "".join(cells) + "</tr>")
+
+    html = f"""
+    <html>
+      <head>
+        <meta charset="utf-8" />
         <style>
-        .ipo-table-wrap {{overflow-x: auto; width: 100%; border: 1px solid rgba(49, 51, 63, 0.2); border-radius: 0.5rem;}}
-        table.{table_class} {{width: 100%; border-collapse: collapse; table-layout: auto; font-size: 0.84rem;}}
-        table.{table_class} thead th {{position: sticky; top: 0; background: rgba(250, 250, 250, 0.98); z-index: 1;}}
-        table.{table_class} th, table.{table_class} td {{padding: 0.38rem 0.5rem; white-space: nowrap; text-overflow: clip; overflow: visible;}}
-        table.{table_class} tbody tr:nth-child(even) {{background: rgba(250, 250, 250, 0.55);}}
+          body {{ margin: 0; padding: 0; background: transparent; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; }}
+          .ipo-table-wrap {{ width: 100%; overflow-x: auto; border: 1px solid rgba(49, 51, 63, 0.18); border-radius: 0.5rem; }}
+          table.{table_class} {{ border-collapse: collapse; width: max-content; min-width: 100%; table-layout: auto; font-size: 12px; line-height: 1.35; }}
+          table.{table_class} thead th {{ position: sticky; top: 0; background: #fafafa; z-index: 2; }}
+          table.{table_class} th, table.{table_class} td {{ padding: 6px 8px; border-bottom: 1px solid rgba(49, 51, 63, 0.08); white-space: nowrap; overflow: visible; text-overflow: clip; text-align: left; }}
+          table.{table_class} tbody tr:nth-child(even) {{ background: rgba(250, 250, 250, 0.55); }}
         </style>
-        <div class="ipo-table-wrap">{html}</div>
-        """,
-        unsafe_allow_html=True,
-    )
+      </head>
+      <body>
+        <div class="ipo-table-wrap">
+          <table class="{table_class}">
+            <thead><tr>{header_html}</tr></thead>
+            <tbody>{''.join(body_rows)}</tbody>
+          </table>
+        </div>
+      </body>
+    </html>
+    """
+    height = min(max(220, 54 + 34 * min(len(work), 12)), 540)
+    components.html(html, height=height, scrolling=True)
 
 
 def normalized_string_options(values: Any) -> list[str]:

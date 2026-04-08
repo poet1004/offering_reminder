@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+from io import StringIO
 from pathlib import Path
 from typing import Any
 from urllib.parse import quote
@@ -19,8 +20,8 @@ from src.utils import data_dir, safe_float, today_kst
 
 
 MARKET_SPECS: list[dict[str, Any]] = [
-    {"name": "KOSPI", "ticker": "^KS11", "group": "국내지수", "providers": ["kis_domestic_index", "pykrx_index", "yahoo_http"], "kis_index_code": "0001", "pykrx_market": "KOSPI"},
-    {"name": "KOSDAQ", "ticker": "^KQ11", "group": "국내지수", "providers": ["kis_domestic_index", "pykrx_index", "yahoo_http"], "kis_index_code": "1001", "pykrx_market": "KOSDAQ"},
+    {"name": "KOSPI", "ticker": "^KS11", "group": "국내지수", "providers": ["kis_domestic_index", "naver_index", "pykrx_index", "yahoo_http"], "kis_index_code": "0001", "naver_code": "KOSPI", "pykrx_market": "KOSPI"},
+    {"name": "KOSDAQ", "ticker": "^KQ11", "group": "국내지수", "providers": ["kis_domestic_index", "naver_index", "pykrx_index", "yahoo_http"], "kis_index_code": "1001", "naver_code": "KOSDAQ", "pykrx_market": "KOSDAQ"},
     {"name": "USD/KRW", "ticker": "KRW=X", "group": "환율", "providers": ["yahoo_http"]},
     {"name": "S&P 500", "ticker": "^GSPC", "group": "해외지수", "providers": ["yahoo_http"]},
     {"name": "NASDAQ", "ticker": "^IXIC", "group": "해외지수", "providers": ["yahoo_http"]},
@@ -41,6 +42,15 @@ YAHOO_HEADERS = {
         "(KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
     )
 }
+NAVER_HEADERS = {
+    "User-Agent": YAHOO_HEADERS["User-Agent"],
+    "Referer": "https://finance.naver.com/",
+    "Accept-Language": "ko-KR,ko;q=0.9,en-US;q=0.8,en;q=0.7",
+}
+NAVER_INDEX_DAY_URLS = [
+    "https://finance.naver.com/sise/sise_index_day.naver",
+    "https://finance.naver.com/sise/sise_index_day.nhn",
+]
 
 
 class MarketService:
@@ -388,6 +398,37 @@ class MarketService:
                 diagnostics.append(self._diag_row("snapshot", spec, "KIS", False, str(exc)))
 
         for spec in MARKET_SPECS:
+            if "naver_index" not in spec.get("providers", []) or spec["ticker"] in row_map:
+                continue
+            try:
+                hist = self._fetch_naver_index_history(str(spec.get("naver_code") or ""), lookback_days=10)
+                if hist.empty:
+                    raise RuntimeError("empty history")
+                last_close = hist["close"].dropna()
+                if last_close.empty:
+                    raise RuntimeError("close is empty")
+                last = float(last_close.iloc[-1])
+                latest_row = hist.dropna(subset=["date"]).iloc[-1]
+                change_pct = safe_float(latest_row.get("change_pct"))
+                if change_pct is None:
+                    prev = float(last_close.iloc[-2]) if len(last_close) >= 2 else last
+                    change_pct = ((last / prev) - 1.0) * 100 if prev else 0.0
+                asof_value = pd.to_datetime(latest_row.get("date"), errors="coerce")
+                row_map[spec["ticker"]] = {
+                    "name": spec["name"],
+                    "group": spec["group"],
+                    "ticker": spec["ticker"],
+                    "last": round(last, 2),
+                    "change_pct": round(change_pct, 2),
+                    "asof": asof_value if not pd.isna(asof_value) else now,
+                    "provider": "NaverFinance",
+                }
+                diagnostics.append(self._diag_row("snapshot", spec, "NaverFinance", True, "OK", rows=int(len(hist))))
+                providers_used.add("NaverFinance")
+            except Exception as exc:
+                diagnostics.append(self._diag_row("snapshot", spec, "NaverFinance", False, str(exc)))
+
+        for spec in MARKET_SPECS:
             if "pykrx_index" not in spec.get("providers", []) or spec["ticker"] in row_map:
                 continue
             try:
@@ -493,6 +534,19 @@ class MarketService:
         elif "kis_domestic_index" in spec.get("providers", []):
             diagnostics.append(self._diag_row("history", spec, "KIS", False, "KIS 환경변수가 없어 국내지수 이력 조회를 건너뜀"))
 
+        if "naver_index" in spec.get("providers", []):
+            try:
+                out = self._fetch_naver_index_history(str(spec.get("naver_code") or ""), lookback_days=self._period_days(period))
+                if out.empty:
+                    raise RuntimeError("empty history")
+                out["ticker"] = spec["ticker"]
+                out["provider"] = "NaverFinance"
+                out = self._ensure_history_columns(out.dropna().sort_values("date").reset_index(drop=True))
+                diagnostics.append(self._diag_row("history", spec, "NaverFinance", True, "OK", rows=int(len(out))))
+                return out, "NaverFinance", diagnostics
+            except Exception as exc:
+                diagnostics.append(self._diag_row("history", spec, "NaverFinance", False, str(exc)))
+
         if "pykrx_index" in spec.get("providers", []):
             try:
                 out = self._fetch_pykrx_index_history(str(spec.get("pykrx_market") or ""), lookback_days=self._period_days(period))
@@ -520,6 +574,94 @@ class MarketService:
                 diagnostics.append(self._diag_row("history", spec, "YahooHTTP", False, str(exc)))
 
         return pd.DataFrame(columns=HISTORY_COLUMNS), None, diagnostics
+
+    def _fetch_naver_index_history(self, index_code: str, *, lookback_days: int) -> pd.DataFrame:
+        index_code = str(index_code or "").strip().upper()
+        if index_code not in {"KOSPI", "KOSDAQ"}:
+            raise RuntimeError("unknown naver index code")
+        target_rows = max(int(lookback_days or 0), 10)
+        max_pages = min(max(target_rows // 10 + 2, 2), 40)
+        frames: list[pd.DataFrame] = []
+        for page in range(1, max_pages + 1):
+            page_df = self._fetch_naver_index_page(index_code=index_code, page=page)
+            if page_df.empty:
+                continue
+            frames.append(page_df)
+            if sum(len(frame) for frame in frames) >= target_rows:
+                break
+        if not frames:
+            raise RuntimeError("empty naver history")
+        out = pd.concat(frames, ignore_index=True)
+        out = out.drop_duplicates(subset=["date"]).sort_values("date").reset_index(drop=True)
+        if out.empty:
+            raise RuntimeError("empty normalized naver history")
+        return out
+
+    def _fetch_naver_index_page(self, *, index_code: str, page: int) -> pd.DataFrame:
+        last_exc: Exception | None = None
+        for url in NAVER_INDEX_DAY_URLS:
+            try:
+                response = requests.get(url, params={"code": index_code, "page": int(page)}, headers=NAVER_HEADERS, timeout=15)
+                response.raise_for_status()
+                response.encoding = response.apparent_encoding or response.encoding or "utf-8"
+                tables = pd.read_html(StringIO(response.text))
+                normalized = self._normalize_naver_index_tables(tables)
+                if not normalized.empty:
+                    return normalized
+            except Exception as exc:
+                last_exc = exc
+                continue
+        if last_exc is not None:
+            raise RuntimeError(str(last_exc))
+        raise RuntimeError("naver page parse failed")
+
+    def _normalize_naver_index_tables(self, tables: list[pd.DataFrame]) -> pd.DataFrame:
+        for table in tables:
+            normalized = self._normalize_naver_index_table(table)
+            if not normalized.empty:
+                return normalized
+        return pd.DataFrame(columns=["date", "close", "change_pct"])
+
+    def _normalize_naver_index_table(self, table: pd.DataFrame) -> pd.DataFrame:
+        if table is None or table.empty:
+            return pd.DataFrame(columns=["date", "close", "change_pct"])
+        work = table.copy()
+        work.columns = [str(col).replace("\n", "").replace("\r", "").strip() for col in work.columns]
+        date_col = next((col for col in work.columns if "날짜" in col), None)
+        close_col = next((col for col in work.columns if any(token in col for token in ["체결가", "종가", "현재지수"])), None)
+        pct_col = next((col for col in work.columns if "등락률" in col), None)
+        if date_col is None or close_col is None:
+            return pd.DataFrame(columns=["date", "close", "change_pct"])
+        out = pd.DataFrame()
+        out["date"] = pd.to_datetime(work[date_col], errors="coerce")
+        out["close"] = work[close_col].map(self._parse_naver_number)
+        if pct_col is not None:
+            out["change_pct"] = work[pct_col].map(self._parse_naver_number)
+        else:
+            out["change_pct"] = pd.NA
+        out = out.dropna(subset=["date", "close"]).sort_values("date").reset_index(drop=True)
+        return out
+
+    @staticmethod
+    def _parse_naver_number(value: Any) -> float | None:
+        if value is None:
+            return None
+        text = str(value).replace(",", "").replace("%", "").replace(" ", " ").strip()
+        if not text or text.lower() in {"nan", "none", "null"}:
+            return None
+        sign = 1.0
+        if any(token in text for token in ["하락", "▼"]):
+            sign = -1.0
+        match = re.search(r"[-+]?\d+(?:\.\d+)?", text)
+        if not match:
+            return None
+        try:
+            number = float(match.group())
+        except Exception:
+            return None
+        if match.group().startswith("-"):
+            return number
+        return sign * number
 
     def _fetch_pykrx_index_history(self, market_name: str, *, lookback_days: int) -> pd.DataFrame:
         if pykrx_stock is None:
