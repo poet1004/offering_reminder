@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>공모주 알리미 모바일 피드</title>
+    <style>
+      body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; margin: 0; padding: 24px; background: #f7f8fb; color: #111827; }
+      .wrap { max-width: 860px; margin: 0 auto; }
+      .card { background: white; border-radius: 16px; padding: 20px; box-shadow: 0 8px 24px rgba(15, 23, 42, 0.08); margin-bottom: 16px; }
+      h1 { margin: 0 0 8px; font-size: 28px; }
+      p { line-height: 1.6; }
+      ul { list-style: none; padding: 0; display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; }
+      li { background: #f3f4f6; padding: 12px 14px; border-radius: 12px; }
+      a { color: #1d4ed8; text-decoration: none; }
+      code { background: #f3f4f6; padding: 2px 6px; border-radius: 6px; }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <div class="card">
+        <h1>공모주 알리미 모바일 피드</h1>
+        <p>모바일 앱이 읽는 JSON 피드입니다. 기본 주소는 <code>https://cdn.jsdelivr.net/gh/poet1004/offering_reminder@main/mobile-feed/mobile-feed.json</code> 입니다.</p>
+        <p>대체 주소: <a href="https://raw.githubusercontent.com/poet1004/offering_reminder/main/mobile-feed/mobile-feed.json">https://raw.githubusercontent.com/poet1004/offering_reminder/main/mobile-feed/mobile-feed.json</a></p>
+        <p>생성 시각: <strong>2026-04-08T14:35:21.954848+00:00</strong></p>
+        <ul><li><strong>종목 수</strong> <span>30</span></li><li><strong>이벤트 수</strong> <span>60</span></li><li><strong>시장 지표 수</strong> <span>9</span></li><li><strong>30일 내 청약</strong> <span>8</span></li><li><strong>30일 내 상장</strong> <span>0</span></li><li><strong>30일 내 보호예수</strong> <span>0</span></li></ul>
+      </div>
+      <div class="card">
+        <h2>바로가기</h2>
+        <p><a href="https://cdn.jsdelivr.net/gh/poet1004/offering_reminder@main/mobile-feed/mobile-feed.json">mobile-feed.json 열기</a></p>
+        <p><a href="https://cdn.jsdelivr.net/gh/poet1004/offering_reminder@main/mobile-feed/health.json">health.json 열기</a></p>
+      </div>
+      <div class="card">
+        <h2>입력 원본</h2>
+        <p>공모주 일정: <code>data/cache/schedule_38_live.csv</code></p>
+        <p>시장 지표: <code>data/cache/market_snapshot_last_success.csv</code></p>
+      </div>
+    </div>
+  </body>
+</html>

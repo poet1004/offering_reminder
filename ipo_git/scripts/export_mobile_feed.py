@@ -267,7 +267,7 @@ def write_json(path: Path, data: Any) -> None:
         json.dump(data, fp, ensure_ascii=False, indent=2)
 
 
-def render_index_html(feed: dict[str, Any], site_base_url: str) -> str:
+def render_index_html(feed: dict[str, Any], public_base_url: str, fallback_base_url: str = '') -> str:
     generated_at = html.escape(feed.get('generatedAt') or '-')
     summary = feed.get('summary') or {}
     next30d = summary.get('next30d') or {}
@@ -281,15 +281,20 @@ def render_index_html(feed: dict[str, Any], site_base_url: str) -> str:
         ('30일 내 보호예수', next30d.get('unlock', 0)),
     ]
     list_items = ''.join(f'<li><strong>{html.escape(str(k))}</strong> <span>{html.escape(str(v))}</span></li>' for k, v in rows)
-    json_url = f"{site_base_url.rstrip('/')}/mobile-feed.json"
-    health_url = f"{site_base_url.rstrip('/')}/health.json"
+    base = public_base_url.rstrip('/') if public_base_url else ''
+    json_url = f"{base}/mobile-feed.json" if base else 'mobile-feed.json'
+    health_url = f"{base}/health.json" if base else 'health.json'
+    fallback_json_url = f"{fallback_base_url.rstrip('/')}/mobile-feed.json" if fallback_base_url else ''
     issues_csv = html.escape(sources.get('issuesCsv') or '-')
     market_csv = html.escape(sources.get('marketCsv') or '-')
+    fallback_block = ''
+    if fallback_json_url:
+        fallback_block = f'<p>대체 주소: <a href="{html.escape(fallback_json_url)}">{html.escape(fallback_json_url)}</a></p>'
     return f"""<!doctype html>
-<html lang=\"ko\">
+<html lang="ko">
   <head>
-    <meta charset=\"utf-8\" />
-    <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\" />
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>공모주 알리미 모바일 피드</title>
     <style>
       body {{ font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; margin: 0; padding: 24px; background: #f7f8fb; color: #111827; }}
@@ -304,19 +309,20 @@ def render_index_html(feed: dict[str, Any], site_base_url: str) -> str:
     </style>
   </head>
   <body>
-    <div class=\"wrap\">
-      <div class=\"card\">
+    <div class="wrap">
+      <div class="card">
         <h1>공모주 알리미 모바일 피드</h1>
-        <p>모바일 앱이 읽는 JSON 피드입니다. 앱 설정의 피드 URL에는 <code>{html.escape(json_url)}</code> 를 넣으면 됩니다.</p>
+        <p>모바일 앱이 읽는 JSON 피드입니다. 기본 주소는 <code>{html.escape(json_url)}</code> 입니다.</p>
+        {fallback_block}
         <p>생성 시각: <strong>{generated_at}</strong></p>
         <ul>{list_items}</ul>
       </div>
-      <div class=\"card\">
+      <div class="card">
         <h2>바로가기</h2>
-        <p><a href=\"{html.escape(json_url)}\">mobile-feed.json 열기</a></p>
-        <p><a href=\"{html.escape(health_url)}\">health.json 열기</a></p>
+        <p><a href="{html.escape(json_url)}">mobile-feed.json 열기</a></p>
+        <p><a href="{html.escape(health_url)}">health.json 열기</a></p>
       </div>
-      <div class=\"card\">
+      <div class="card">
         <h2>입력 원본</h2>
         <p>공모주 일정: <code>{issues_csv}</code></p>
         <p>시장 지표: <code>{market_csv}</code></p>
@@ -327,40 +333,64 @@ def render_index_html(feed: dict[str, Any], site_base_url: str) -> str:
 """
 
 
-def write_site(site_dir: Path, feed: dict[str, Any], site_base_url: str) -> None:
-    site_dir.mkdir(parents=True, exist_ok=True)
-    write_json(site_dir / 'mobile-feed.json', feed)
+def render_readme_md(public_base_url: str, fallback_base_url: str = '') -> str:
+    base = public_base_url.rstrip('/') if public_base_url else '.'
+    lines = [
+        '# 모바일 피드 출력물',
+        '',
+        f'- 기본 주소: `{base}/mobile-feed.json`',
+        f'- 상태 주소: `{base}/health.json`',
+    ]
+    if fallback_base_url:
+        fb = fallback_base_url.rstrip('/')
+        lines.append(f'- 대체 주소: `{fb}/mobile-feed.json`')
+    lines += [
+        '',
+        '이 디렉터리는 GitHub Actions가 자동 갱신합니다.',
+        '직접 수정하지 않는 것을 권장합니다.',
+    ]
+    return "\n".join(lines) + "\n"
+
+
+def write_bundle(output_dir: Path, feed: dict[str, Any], public_base_url: str = '', fallback_base_url: str = '') -> None:
+    output_dir.mkdir(parents=True, exist_ok=True)
+    write_json(output_dir / 'mobile-feed.json', feed)
     write_json(
-        site_dir / 'health.json',
+        output_dir / 'health.json',
         {
             'status': 'ok',
             'generatedAt': feed.get('generatedAt'),
             'summary': feed.get('summary'),
             'source': feed.get('source'),
+            'publicBaseUrl': public_base_url or None,
+            'fallbackBaseUrl': fallback_base_url or None,
         },
     )
-    (site_dir / 'index.html').write_text(render_index_html(feed, site_base_url), encoding='utf-8')
-    (site_dir / '.nojekyll').write_text('', encoding='utf-8')
+    (output_dir / 'index.html').write_text(render_index_html(feed, public_base_url, fallback_base_url), encoding='utf-8')
+    (output_dir / 'README.md').write_text(render_readme_md(public_base_url, fallback_base_url), encoding='utf-8')
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(description='기존 공모주 저장소를 모바일 앱용 JSON 피드로 변환합니다.')
     parser.add_argument('--repo', default='.', help='CSV 캐시가 있는 저장소 경로')
     parser.add_argument('--output', default='', help='생성할 JSON 파일 경로')
-    parser.add_argument('--site-dir', default='', help='GitHub Pages 배포용 정적 사이트 출력 폴더')
-    parser.add_argument('--site-base-url', default='https://example.github.io/repo', help='배포될 사이트의 기준 URL')
+    parser.add_argument('--output-dir', default='', help='mobile-feed.json/health.json/index.html 을 쓸 출력 디렉터리')
+    parser.add_argument('--site-dir', default='', help='이전 옵션 호환용 별칭(output-dir와 동일)')
+    parser.add_argument('--public-base-url', default='', help='앱이 우선 읽을 공개 기본 주소(jsDelivr 등)')
+    parser.add_argument('--fallback-base-url', default='', help='대체 공개 주소(raw.githubusercontent.com 등)')
     args = parser.parse_args()
 
     repo = Path(args.repo).resolve()
     feed = build_feed(repo)
+    output_dir = args.output_dir or args.site_dir
 
     if args.output:
         write_json(Path(args.output).resolve(), feed)
         print(f'Wrote {Path(args.output).resolve()}')
-    if args.site_dir:
-        write_site(Path(args.site_dir).resolve(), feed, args.site_base_url)
-        print(f'Wrote site {Path(args.site_dir).resolve()}')
-    if not args.output and not args.site_dir:
+    if output_dir:
+        write_bundle(Path(output_dir).resolve(), feed, args.public_base_url, args.fallback_base_url)
+        print(f'Wrote bundle {Path(output_dir).resolve()}')
+    if not args.output and not output_dir:
         print(json.dumps(feed, ensure_ascii=False, indent=2))
 
 

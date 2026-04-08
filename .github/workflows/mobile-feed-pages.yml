@@ -1,4 +1,4 @@
-name: mobile-feed-pages
+name: mobile-feed-cdn
 
 on:
   workflow_dispatch:
@@ -13,20 +13,22 @@ on:
       - 'ipo_git/scripts/export_mobile_feed.py'
 
 permissions:
-  contents: read
-  pages: write
-  id-token: write
+  contents: write
 
 concurrency:
-  group: pages
+  group: mobile-feed-cdn
   cancel-in-progress: true
 
 jobs:
-  build:
+  build-and-commit:
+    if: github.actor != 'github-actions[bot]'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.ref_name }}
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -38,39 +40,29 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install pandas
 
-      - name: Resolve site base URL
+      - name: Resolve public URLs
         shell: bash
         run: |
-          REPO_NAME="${GITHUB_REPOSITORY#*/}"
-          if [ "$REPO_NAME" = "${GITHUB_REPOSITORY_OWNER}.github.io" ]; then
-            SITE_BASE_URL="https://${GITHUB_REPOSITORY_OWNER}.github.io"
-          else
-            SITE_BASE_URL="https://${GITHUB_REPOSITORY_OWNER}.github.io/${REPO_NAME}"
-          fi
-          echo "SITE_BASE_URL=${SITE_BASE_URL}" >> "$GITHUB_ENV"
+          REPO="${GITHUB_REPOSITORY}"
+          BRANCH="${GITHUB_REF_NAME}"
+          JSDELIVR_BASE="https://cdn.jsdelivr.net/gh/${REPO}@${BRANCH}/mobile-feed"
+          RAW_BASE="https://raw.githubusercontent.com/${REPO}/${BRANCH}/mobile-feed"
+          echo "JSDELIVR_BASE=${JSDELIVR_BASE}" >> "$GITHUB_ENV"
+          echo "RAW_BASE=${RAW_BASE}" >> "$GITHUB_ENV"
 
-      - name: Build mobile feed site
+      - name: Build mobile feed bundle
         run: |
-          python ipo_git/scripts/export_mobile_feed.py \
-            --repo ipo_git \
-            --site-dir mobile-pages \
-            --site-base-url "$SITE_BASE_URL"
+          python ipo_git/scripts/export_mobile_feed.py             --repo ipo_git             --output-dir mobile-feed             --public-base-url "$JSDELIVR_BASE"             --fallback-base-url "$RAW_BASE"
 
-      - name: Configure GitHub Pages
-        uses: actions/configure-pages@v5
-
-      - name: Upload Pages artifact
-        uses: actions/upload-pages-artifact@v3
-        with:
-          path: mobile-pages
-
-  deploy:
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
-    runs-on: ubuntu-latest
-    needs: build
-    steps:
-      - name: Deploy to GitHub Pages
-        id: deployment
-        uses: actions/deploy-pages@v4
+      - name: Commit generated mobile feed
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add mobile-feed
+          if git diff --cached --quiet; then
+            echo "No feed changes to commit."
+            exit 0
+          fi
+          git commit -m "chore: refresh mobile feed [skip ci]"
+          git push origin HEAD:${GITHUB_REF_NAME}
