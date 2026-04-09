@@ -24,18 +24,19 @@ from src.services.ipo_repository import IPORepository
 from src.services.kis_client import KISClient
 from src.services.lockup_strategy_service import LockupStrategyService
 from src.services.market_service import MarketService
-from src.services.ipo_scrapers import fetch_38_schedule, standardize_38_schedule_table
+from src.services.public_quote_service import PublicQuoteService
+from src.services.ipo_scrapers import fetch_38_demand_results, fetch_38_ir_links, fetch_38_new_listing_table, fetch_38_schedule, fetch_kind_corp_download_table, load_kind_export_from_path, standardize_38_new_listing_table, standardize_38_schedule_table
 from src.services.shorts_service import ShortsStudioService
 from src.services.scoring import IPOScorer
 from src.services.strategy_bridge import StrategyBridge
 from src.services.turnover_strategy_service import TurnoverStrategyParams, TurnoverStrategyService
 from src.services.unified_lab_bridge import UnifiedLabBridgeService, UnifiedLabBundle, UnifiedLabPaths
-from src.utils import detect_project_env_file, fmt_date, fmt_num, fmt_pct, fmt_ratio, fmt_won, humanize_source, issue_recency_sort, load_project_env, mask_secret, normalize_name_key, runtime_dir, safe_float, standardize_issue_frame, to_csv_bytes, today_kst
+from src.utils import detect_project_env_file, fmt_date, fmt_num, fmt_pct, fmt_ratio, fmt_won, humanize_source, issue_recency_sort, load_project_env, mask_secret, normalize_name_key, normalize_symbol_text, runtime_dir, safe_float, standardize_issue_frame, to_csv_bytes, today_kst
 
 
 APP_ROOT = Path(__file__).resolve().parent
 DATA_DIR = APP_ROOT / "data"
-CACHE_REV = "20260401_v20_naver_index_html_tables"
+CACHE_REV = "20260409_v25_symbol_fix_quote_fallback"
 
 PAGES_REQUIRING_BUNDLE = {
     "대시보드",
@@ -516,9 +517,9 @@ def render_scrollable_table(df: pd.DataFrame, key: str) -> None:
         <style>
           body {{ margin: 0; padding: 0; background: transparent; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; }}
           .ipo-table-wrap {{ width: 100%; overflow-x: auto; border: 1px solid rgba(49, 51, 63, 0.18); border-radius: 0.5rem; }}
-          table.{table_class} {{ border-collapse: collapse; width: max-content; min-width: 100%; table-layout: auto; font-size: 12px; line-height: 1.35; }}
+          table.{table_class} {{ border-collapse: collapse; width: max-content; min-width: 100%; table-layout: auto; font-size: 10.6px; line-height: 1.24; }}
           table.{table_class} thead th {{ position: sticky; top: 0; background: #fafafa; z-index: 2; }}
-          table.{table_class} th, table.{table_class} td {{ padding: 6px 8px; border-bottom: 1px solid rgba(49, 51, 63, 0.08); white-space: nowrap; overflow: visible; text-overflow: clip; text-align: left; }}
+          table.{table_class} th, table.{table_class} td {{ padding: 5px 6px; border-bottom: 1px solid rgba(49, 51, 63, 0.08); white-space: nowrap; overflow: visible; text-overflow: clip; text-align: left; vertical-align: top; word-break: keep-all; }}
           table.{table_class} tbody tr:nth-child(even) {{ background: rgba(250, 250, 250, 0.55); }}
         </style>
       </head>
@@ -558,12 +559,16 @@ def normalized_string_options(values: Any) -> list[str]:
     return sorted(options, key=lambda item: item.casefold())
 
 
+
 def issue_missing_detail_count(issue: pd.Series | dict[str, Any]) -> int:
     row = issue if isinstance(issue, dict) else issue.to_dict()
     target_cols = [
         "symbol",
         "market",
         "sector",
+        "institutional_competition_ratio",
+        "lockup_commitment_ratio",
+        "ir_pdf_url",
         "existing_shareholder_ratio",
         "employee_forfeit_ratio",
         "secondary_sale_ratio",
@@ -580,29 +585,91 @@ def load_issue_detail_overlay_cached(stock_code: str, corp_name: str, cache_rev:
     corp_name = str(corp_name or "").strip()
     overlay: dict[str, Any] = {}
 
+    def match_by_name(frame: pd.DataFrame) -> pd.DataFrame:
+        if frame is None or frame.empty or not corp_name:
+            return pd.DataFrame()
+        work = frame.copy()
+        name_col = next((c for c in ["name", "기업명", "종목명", "회사명"] if c in work.columns), None)
+        if name_col is None:
+            return pd.DataFrame()
+        work["name_key"] = work[name_col].map(normalize_name_key)
+        target_key = normalize_name_key(corp_name)
+        subset = work[work["name_key"] == target_key].copy()
+        if subset.empty:
+            compact_target = target_key.replace("구", "")
+            mask = work["name_key"].astype(str).str.contains(target_key, na=False)
+            if compact_target and compact_target != target_key:
+                mask = mask | work["name_key"].astype(str).str.contains(compact_target, na=False)
+            subset = work.loc[mask].copy()
+        return subset
+
     if corp_name:
         try:
             raw_38 = fetch_38_schedule(timeout=6, include_detail_links=True)
-            if not raw_38.empty:
-                work = raw_38.copy()
-                name_col = next((c for c in ["기업명", "종목명", "회사명"] if c in work.columns), None)
-                if name_col is not None:
-                    work["name_key"] = work[name_col].map(normalize_name_key)
-                    target_key = normalize_name_key(corp_name)
-                    subset = work[work["name_key"] == target_key].copy()
-                    if subset.empty:
-                        compact_target = target_key.replace("구", "")
-                        mask = work["name_key"].astype(str).str.contains(target_key, na=False)
-                        if compact_target and compact_target != target_key:
-                            mask = mask | work["name_key"].astype(str).str.contains(compact_target, na=False)
-                        subset = work.loc[mask].copy()
-                    if not subset.empty:
-                        detail_df = standardize_38_schedule_table(subset.drop(columns=["name_key"], errors="ignore"), fetch_details=True)
-                        if not detail_df.empty:
-                            first = detail_df.iloc[0].to_dict()
-                            for key, value in first.items():
-                                if has_value(value):
-                                    overlay.setdefault(key, value)
+            subset = match_by_name(raw_38)
+            if not subset.empty:
+                detail_df = standardize_38_schedule_table(subset.drop(columns=["name_key"], errors="ignore"), fetch_details=True)
+                if not detail_df.empty:
+                    first = detail_df.iloc[0].to_dict()
+                    for key, value in first.items():
+                        if has_value(value):
+                            overlay.setdefault(key, value)
+        except Exception:
+            pass
+
+        try:
+            new_listing_df = standardize_38_new_listing_table(fetch_38_new_listing_table(timeout=6, max_pages=4))
+            new_listing_subset = match_by_name(new_listing_df)
+            if not new_listing_subset.empty:
+                first = new_listing_subset.sort_values([c for c in ["listing_date", "name_key"] if c in new_listing_subset.columns], ascending=[False, True], na_position="last").iloc[0].to_dict()
+                for key in ["listing_date", "offer_price", "current_price", "day_change_pct"]:
+                    value = first.get(key)
+                    if has_value(value):
+                        overlay.setdefault(key, value)
+        except Exception:
+            pass
+
+        try:
+            seed_df = standardize_issue_frame(IPORepository(DATA_DIR).load_38_seed_export())
+            seed_subset = match_by_name(seed_df)
+            if not seed_subset.empty:
+                first = seed_subset.sort_values([c for c in ["listing_date", "name_key"] if c in seed_subset.columns], ascending=[False, True], na_position="last").iloc[0].to_dict()
+                for key in ["listing_date", "offer_price"]:
+                    value = first.get(key)
+                    if has_value(value):
+                        overlay.setdefault(key, value)
+        except Exception:
+            pass
+
+        try:
+            demand_df = fetch_38_demand_results(timeout=6, max_pages=4)
+            demand_subset = match_by_name(demand_df)
+            if not demand_subset.empty:
+                first = demand_subset.sort_values([c for c in ["forecast_date", "name_key"] if c in demand_subset.columns], ascending=[False, True], na_position="last").iloc[0].to_dict()
+                for key in [
+                    "underwriters",
+                    "forecast_date",
+                    "price_band_low",
+                    "price_band_high",
+                    "offer_price",
+                    "institutional_competition_ratio",
+                    "lockup_commitment_ratio",
+                ]:
+                    value = first.get(key)
+                    if has_value(value):
+                        overlay.setdefault(key, value)
+        except Exception:
+            pass
+
+        try:
+            ir_df = fetch_38_ir_links(timeout=6, max_pages=6)
+            ir_subset = match_by_name(ir_df)
+            if not ir_subset.empty:
+                first = ir_subset.sort_values([c for c in ["ir_date", "name_key"] if c in ir_subset.columns], ascending=[False, True], na_position="last").iloc[0].to_dict()
+                for key in ["ir_title", "ir_date", "ir_pdf_url", "ir_source_page"]:
+                    value = first.get(key)
+                    if has_value(value):
+                        overlay.setdefault(key, value)
         except Exception:
             pass
 
@@ -644,8 +711,8 @@ def load_issue_detail_overlay_cached(stock_code: str, corp_name: str, cache_rev:
 
 
 def hydrate_issue_for_display(issue: pd.Series) -> pd.Series:
-    row = issue.copy()
-    if issue_missing_detail_count(row) < 4:
+    row = prefill_issue_frame_for_display(pd.DataFrame([issue])).iloc[0].copy()
+    if not issue_needs_enrichment(row):
         return row
     corp_name = text_value(row.get("name"), "").strip()
     stock_code = text_value(row.get("symbol"), "").strip()
@@ -665,7 +732,13 @@ def hydrate_issue_for_display(issue: pd.Series) -> pd.Series:
             if not has_value(value):
                 continue
             if not has_value(row.get(key)) or key in {
+                "institutional_competition_ratio",
                 "lockup_commitment_ratio",
+                "forecast_date",
+                "ir_title",
+                "ir_date",
+                "ir_pdf_url",
+                "ir_source_page",
                 "employee_subscription_ratio",
                 "employee_forfeit_ratio",
                 "circulating_shares_on_listing",
@@ -1001,14 +1074,13 @@ def render_issue_dart_overlay_from_issue(issue: pd.Series) -> None:
         st.info("선택 종목에 저장된 DART 보강값이 없습니다. 데이터 허브 배치 추출이나 DART 원문 분석을 실행해 보세요.")
         return
 
-    st.write(
-        {
-            "DART 접수번호": safe_text(issue.get("dart_receipt_no")),
-            "보고서명": safe_text(issue.get("dart_report_nm")),
-            "접수일": fmt_date(issue.get("dart_filing_date")),
-            "뷰어": safe_text(issue.get("dart_viewer_url")),
-        }
-    )
+    top_cards = [
+        {"title": "DART 연결", "value": "연결됨" if has_value(issue.get("dart_viewer_url")) else "미연결", "sub": fmt_date(issue.get("dart_filing_date")), "tone": "good" if has_value(issue.get("dart_viewer_url")) else "neutral"},
+        {"title": "접수번호", "value": safe_text(issue.get("dart_receipt_no")), "sub": "DART 접수번호", "tone": "neutral"},
+    ]
+    render_soft_cards(top_cards, columns=2)
+    if has_value(issue.get("dart_viewer_url")):
+        link_button_compat("DART 보고서 열기", issue.get("dart_viewer_url"))
     c1, c2, c3, c4, c5, c6 = st.columns(6)
     c1.metric("확약비율", fmt_pct(issue.get("lockup_commitment_ratio")))
     c2.metric("상장 유통비율", fmt_pct(issue.get("circulating_shares_ratio_on_listing")))
@@ -1028,40 +1100,835 @@ def render_issue_dart_overlay_from_issue(issue: pd.Series) -> None:
 
 
 
+
+def render_issue_resource_links(issue: pd.Series, *, show_header: bool = True) -> None:
+    lines: list[str] = []
+    ir_pdf_url = text_value(issue.get("ir_pdf_url"), "").strip()
+    ir_title = text_value(issue.get("ir_title"), "IR 자료 PDF")
+    ir_date = compact_date_text(issue.get("ir_date"), default="")
+    if ir_pdf_url:
+        suffix: list[str] = []
+        if ir_title and ir_title != "-":
+            suffix.append(ir_title)
+        if ir_date and ir_date != "-":
+            suffix.append(ir_date)
+        lines.append(f"- [IR PDF 열기]({ir_pdf_url})" + (f" · {' / '.join(suffix)}" if suffix else ""))
+    ir_source_page = text_value(issue.get("ir_source_page"), "").strip()
+    if ir_source_page:
+        lines.append(f"- [IR 자료실]({ir_source_page})")
+    if should_show_kind_link(issue.get("kind_url")):
+        lines.append(f"- [KIND 문서 링크]({text_value(issue.get('kind_url'))})")
+    if should_show_kind_link(issue.get("ir_url")):
+        lines.append(f"- [KIND IR 문서]({text_value(issue.get('ir_url'))})")
+    if show_header and has_value(issue.get("dart_viewer_url")):
+        label = text_value(issue.get("dart_report_nm"), "DART 보고서")
+        lines.append(f"- [{label}]({text_value(issue.get('dart_viewer_url'))})")
+    if not lines:
+        return
+    if show_header:
+        st.markdown("**문서 링크**")
+    for line in lines:
+        st.markdown(line)
+
+
+
+
+def inject_global_styles() -> None:
+    st.markdown(
+        """
+        <style>
+        div[data-testid="stMetric"] {
+            background: rgba(248, 250, 252, 0.96);
+            border: 1px solid rgba(148, 163, 184, 0.22);
+            padding: 12px 14px;
+            border-radius: 16px;
+        }
+        div[data-testid="stMetricLabel"] {
+            font-weight: 600;
+        }
+        .ipo-hero {
+            padding: 18px 20px;
+            border-radius: 22px;
+            background: linear-gradient(135deg, rgba(239, 246, 255, 0.96) 0%, rgba(248, 250, 252, 0.98) 52%, rgba(240, 253, 250, 0.96) 100%);
+            border: 1px solid rgba(148, 163, 184, 0.18);
+            box-shadow: 0 10px 32px rgba(15, 23, 42, 0.05);
+            margin: 0 0 14px 0;
+        }
+        .ipo-hero h2 {
+            margin: 0 0 6px 0;
+            font-size: 1.36rem;
+            color: #0f172a;
+        }
+        .ipo-hero p {
+            margin: 0;
+            color: #475569;
+            font-size: 0.94rem;
+            line-height: 1.55;
+        }
+        .ipo-chip-row {
+            margin: 2px 0 10px 0;
+        }
+        .ipo-chip {
+            display: inline-block;
+            margin: 0 6px 6px 0;
+            padding: 5px 10px;
+            border-radius: 999px;
+            background: rgba(14, 165, 233, 0.10);
+            color: #0f172a;
+            font-size: 0.83rem;
+            font-weight: 600;
+            border: 1px solid rgba(14, 165, 233, 0.14);
+        }
+        .ipo-soft-card {
+            border: 1px solid rgba(148, 163, 184, 0.20);
+            border-radius: 18px;
+            padding: 14px 16px;
+            background: rgba(255, 255, 255, 0.90);
+            min-height: 102px;
+            box-shadow: 0 8px 24px rgba(15, 23, 42, 0.04);
+        }
+        .ipo-soft-card.good {
+            background: linear-gradient(180deg, rgba(240, 253, 244, 0.95) 0%, rgba(255,255,255,0.96) 100%);
+        }
+        .ipo-soft-card.warn {
+            background: linear-gradient(180deg, rgba(255, 251, 235, 0.95) 0%, rgba(255,255,255,0.96) 100%);
+        }
+        .ipo-soft-card.bad {
+            background: linear-gradient(180deg, rgba(254, 242, 242, 0.95) 0%, rgba(255,255,255,0.96) 100%);
+        }
+        .ipo-soft-card.neutral {
+            background: linear-gradient(180deg, rgba(248, 250, 252, 0.95) 0%, rgba(255,255,255,0.96) 100%);
+        }
+        .ipo-soft-title {
+            font-size: 0.82rem;
+            color: #475569;
+            margin-bottom: 6px;
+            font-weight: 600;
+        }
+        .ipo-soft-value {
+            font-size: 1.24rem;
+            color: #0f172a;
+            font-weight: 700;
+            margin-bottom: 4px;
+            line-height: 1.2;
+        }
+        .ipo-soft-sub {
+            font-size: 0.82rem;
+            color: #64748b;
+            line-height: 1.45;
+        }
+        .ipo-fact-card {
+            border: 1px solid rgba(148, 163, 184, 0.18);
+            border-radius: 14px;
+            padding: 11px 12px;
+            background: rgba(248, 250, 252, 0.84);
+            margin-bottom: 10px;
+        }
+        .ipo-fact-label {
+            font-size: 0.78rem;
+            color: #64748b;
+            margin-bottom: 4px;
+        }
+        .ipo-fact-value {
+            font-size: 0.98rem;
+            color: #0f172a;
+            font-weight: 600;
+            word-break: break-word;
+            line-height: 1.45;
+        }
+        .ipo-note {
+            font-size: 0.87rem;
+            color: #475569;
+            line-height: 1.55;
+        }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+def render_soft_cards(cards: list[dict[str, Any]], *, columns: int | None = None) -> None:
+    if not cards:
+        return
+    work = [card for card in cards if card]
+    if not work:
+        return
+    cols_per_row = max(1, min(columns or len(work), len(work), 4))
+    for start in range(0, len(work), cols_per_row):
+        row_cards = work[start:start + cols_per_row]
+        cols = st.columns(cols_per_row)
+        for idx, card in enumerate(row_cards):
+            tone = text_value(card.get("tone"), "neutral")
+            title = escape(text_value(card.get("title"), ""))
+            value = escape(text_value(card.get("value"), "-"))
+            sub = escape(text_value(card.get("sub"), ""))
+            value_color = text_value(card.get("value_color"), "").strip()
+            sub_color = text_value(card.get("sub_color"), "").strip()
+            value_style = f" style='color:{escape(value_color)};'" if value_color and value_color != "-" else ""
+            sub_style = f" style='color:{escape(sub_color)};'" if sub_color and sub_color != "-" else ""
+            html = (
+                f"<div class='ipo-soft-card {tone}'>"
+                f"<div class='ipo-soft-title'>{title}</div>"
+                f"<div class='ipo-soft-value'{value_style}>{value}</div>"
+                f"<div class='ipo-soft-sub'{sub_style}>{sub}</div>"
+                f"</div>"
+            )
+            cols[idx].markdown(html, unsafe_allow_html=True)
+
+
+def render_badge_row(labels: list[str]) -> None:
+    labels = [str(label).strip() for label in labels if str(label).strip()]
+    if not labels:
+        return
+    chips = "".join(f"<span class='ipo-chip'>{escape(label)}</span>" for label in labels)
+    st.markdown(f"<div class='ipo-chip-row'>{chips}</div>", unsafe_allow_html=True)
+
+
+def link_button_compat(label: str, url: Any, *, use_container_width: bool = True) -> None:
+    href = text_value(url, "").strip()
+    if not href:
+        return
+    if hasattr(st, "link_button"):
+        st.link_button(label, href, use_container_width=use_container_width)
+    else:
+        st.markdown(f"[{label}]({href})")
+
+
+def market_move_colors(change_pct: Any) -> tuple[str | None, str | None]:
+    value = safe_float(change_pct)
+    if value is None or abs(value) < 1e-12:
+        return (None, None)
+    if value > 0:
+        return ("#dc2626", "#b91c1c")
+    return ("#2563eb", "#1d4ed8")
+
+
+def should_show_kind_link(url: Any) -> bool:
+    href = text_value(url, "").strip()
+    if not href or href == "-":
+        return False
+    generic_tokens = [
+        "searchListingTypeMain",
+        "searchPubofrProgComMain",
+        "irschedule.do?gubun=iRMaterials&method=searchIRScheduleMain",
+        "corpList.do?method=download",
+        "corpList.do?method=download&searchType=13",
+    ]
+    return not any(token in href for token in generic_tokens)
+
+
+def issue_needs_enrichment(issue: pd.Series | dict[str, Any]) -> bool:
+    row = issue if isinstance(issue, dict) else issue.to_dict()
+    if not text_value(row.get("name"), "").strip():
+        return False
+    critical_fields = [
+        "listing_date",
+        "offer_price",
+        "current_price",
+        "institutional_competition_ratio",
+        "lockup_commitment_ratio",
+        "circulating_shares_ratio_on_listing",
+        "existing_shareholder_ratio",
+        "ir_pdf_url",
+        "dart_viewer_url",
+        "dart_report_nm",
+    ]
+    return any(not has_value(row.get(col)) for col in critical_fields)
+
+
+def _field_coverage(df: pd.DataFrame, cols: list[str]) -> float:
+    if df is None or df.empty:
+        return 0.0
+    present = [col for col in cols if col in df.columns]
+    if not present:
+        return 0.0
+    mask = pd.DataFrame({col: df[col].map(has_value) for col in present})
+    return float(mask.any(axis=1).mean()) if not mask.empty else 0.0
+
+
+def _kind_fill_ratio(df: pd.DataFrame) -> float:
+    return _field_coverage(df, ["market", "symbol", "listing_date", "underwriters", "offer_price", "current_price"])
+
+
+@st.cache_data(show_spinner=False, ttl=3600)
+def load_issue_support_tables_cached(cache_rev: str = CACHE_REV) -> dict[str, pd.DataFrame]:
+    _ = cache_rev
+    hub = IPODataHub(DATA_DIR, dart_client=DartClient.from_env(), kis_client=KISClient.from_env())
+    cache = hub.cache
+    now = today_kst()
+
+    def _maybe_read(name: str) -> pd.DataFrame:
+        try:
+            df = cache.read_frame(name)
+            return standardize_issue_frame(df) if isinstance(df, pd.DataFrame) and not df.empty else pd.DataFrame()
+        except Exception:
+            return pd.DataFrame()
+
+    def _write_cache(name: str, frame: pd.DataFrame, *, source: str, notes: str) -> None:
+        if frame is None or frame.empty:
+            return
+        cache.write_frame(name, frame, meta={"source": source, "notes": notes, "row_count": int(len(frame)), "saved_at": now.isoformat()})
+
+    schedule_df = _maybe_read("schedule_38_live")
+    if schedule_df.empty or _field_coverage(schedule_df, ["symbol", "market", "listing_date", "offer_price"]) < 0.40 or _field_coverage(schedule_df, ["institutional_competition_ratio", "lockup_commitment_ratio", "current_price"]) <= 0.02:
+        try:
+            schedule_df = standardize_issue_frame(standardize_38_schedule_table(fetch_38_schedule(include_detail_links=True), fetch_details=True))
+            _write_cache("schedule_38_live", schedule_df, source="38", notes="support-load-refresh")
+        except Exception:
+            schedule_df = schedule_df if not schedule_df.empty else pd.DataFrame()
+
+    new_listing_df = _maybe_read("schedule_38_new_listing_live")
+    if new_listing_df.empty or _field_coverage(new_listing_df, ["listing_date", "offer_price", "current_price"]) < 0.20:
+        try:
+            new_listing_df = standardize_issue_frame(standardize_38_new_listing_table(fetch_38_new_listing_table()))
+            _write_cache("schedule_38_new_listing_live", new_listing_df, source="38", notes="support-load-new-listing")
+        except Exception:
+            new_listing_df = new_listing_df if not new_listing_df.empty else pd.DataFrame()
+
+    demand_df = _maybe_read("schedule_38_demand_live")
+    if demand_df.empty or _field_coverage(demand_df, ["forecast_date", "institutional_competition_ratio", "lockup_commitment_ratio"]) < 0.45:
+        try:
+            demand_df = standardize_issue_frame(fetch_38_demand_results(timeout=10, max_pages=6))
+            _write_cache("schedule_38_demand_live", demand_df, source="38", notes="support-load-demand")
+        except Exception:
+            demand_df = demand_df if not demand_df.empty else pd.DataFrame()
+
+    ir_df = _maybe_read("ir_38_live")
+    if ir_df.empty or _field_coverage(ir_df, ["ir_pdf_url", "ir_date"]) < 0.30:
+        try:
+            ir_df = standardize_issue_frame(fetch_38_ir_links(timeout=10, max_pages=8))
+            _write_cache("ir_38_live", ir_df, source="38", notes="support-load-ir")
+        except Exception:
+            ir_df = ir_df if not ir_df.empty else pd.DataFrame()
+
+    kind_corp_df = _maybe_read("kind_corp_download_live")
+    if kind_corp_df.empty or _field_coverage(kind_corp_df, ["symbol"]) < 0.35 or _field_coverage(kind_corp_df, ["listing_date", "market"]) < 0.35:
+        try:
+            kind_corp_df = standardize_issue_frame(fetch_kind_corp_download_table(timeout=12))
+            _write_cache("kind_corp_download_live", kind_corp_df, source="KIND", notes="support-load-corpdownload")
+        except Exception:
+            kind_corp_df = kind_corp_df if not kind_corp_df.empty else pd.DataFrame()
+
+    kind_listing_df = _maybe_read("kind_listing_live")
+    if kind_listing_df.empty or _kind_fill_ratio(kind_listing_df) < 0.20:
+        try:
+            kind_listing_df = standardize_issue_frame(standardize_kind_listing_table(fetch_kind_listing_table(timeout=10)))
+            _write_cache("kind_listing_live", kind_listing_df, source="KIND", notes="support-load-listing")
+        except Exception:
+            kind_listing_df = kind_listing_df if not kind_listing_df.empty else pd.DataFrame()
+
+    kind_public_df = _maybe_read("kind_public_offering_live")
+    if kind_public_df.empty or _kind_fill_ratio(kind_public_df) < 0.20:
+        try:
+            kind_public_df = standardize_issue_frame(standardize_kind_public_offering_table(fetch_kind_public_offering_table(timeout=10)))
+            _write_cache("kind_public_offering_live", kind_public_df, source="KIND", notes="support-load-public-offer")
+        except Exception:
+            kind_public_df = kind_public_df if not kind_public_df.empty else pd.DataFrame()
+
+    kind_pubprice_df = _maybe_read("kind_pubprice_live")
+    if kind_pubprice_df.empty or _field_coverage(kind_pubprice_df, ["current_price", "offer_price", "listing_date"]) < 0.20:
+        try:
+            kind_pubprice_df = standardize_issue_frame(standardize_kind_pubprice_table(fetch_kind_pubprice_table(timeout=10)))
+            _write_cache("kind_pubprice_live", kind_pubprice_df, source="KIND", notes="support-load-pubprice")
+        except Exception:
+            kind_pubprice_df = kind_pubprice_df if not kind_pubprice_df.empty else pd.DataFrame()
+
+    try:
+        local_kind_path = hub.repo.auto_detect_local_kind_export()
+        local_master_df = standardize_issue_frame(load_kind_export_from_path(local_kind_path)) if local_kind_path else pd.DataFrame()
+    except Exception:
+        local_master_df = pd.DataFrame()
+
+    try:
+        seed_38_df = standardize_issue_frame(hub.repo.load_38_seed_export())
+    except Exception:
+        seed_38_df = pd.DataFrame()
+
+    try:
+        dart_df = standardize_issue_frame(hub.repo.load_dart_enriched_export())
+    except Exception:
+        dart_df = pd.DataFrame()
+
+    return {
+        "schedule": schedule_df,
+        "new_listing": new_listing_df,
+        "demand": demand_df,
+        "ir": ir_df,
+        "seed_38": seed_38_df,
+        "local_master": local_master_df,
+        "dart": dart_df,
+        "kind_corp": kind_corp_df,
+        "kind_listing": kind_listing_df,
+        "kind_public": kind_public_df,
+        "kind_pubprice": kind_pubprice_df,
+    }
+
+def prefill_issue_frame_for_display(df: pd.DataFrame) -> pd.DataFrame:
+    if df is None or df.empty:
+        return pd.DataFrame(columns=getattr(df, "columns", []))
+    work = standardize_issue_frame(df.copy())
+    tables = load_issue_support_tables_cached()
+    hub = IPODataHub(DATA_DIR, dart_client=DartClient.from_env(), kis_client=KISClient.from_env())
+    for key in ["local_master", "seed_38", "kind_corp", "schedule", "new_listing", "demand", "ir", "kind_listing", "kind_public", "kind_pubprice", "dart"]:
+        overlay = tables.get(key, pd.DataFrame())
+        if isinstance(overlay, pd.DataFrame) and not overlay.empty:
+            work = hub._overlay_issues(work, overlay)
+    return add_issue_scores(work)
+
+
+@st.cache_data(show_spinner=False, ttl=1800)
+def load_public_quotes_cached(symbol_name_pairs: tuple[tuple[str, str], ...], cache_rev: str = CACHE_REV) -> pd.DataFrame:
+    _ = cache_rev
+    if not symbol_name_pairs:
+        return pd.DataFrame(columns=["name_key", "symbol", "market", "current_price", "day_change_pct", "quote_asof", "quote_provider"])
+    req_df = pd.DataFrame(symbol_name_pairs, columns=["symbol", "name"])
+    service = PublicQuoteService(DATA_DIR)
+    return service.get_quotes(req_df, max_items=min(len(req_df), 80))
+
+
+def overlay_public_quotes_on_frame(df: pd.DataFrame, *, max_items: int = 40) -> pd.DataFrame:
+    if df is None or df.empty:
+        return pd.DataFrame(columns=getattr(df, "columns", []))
+    work = standardize_issue_frame(df.copy())
+    listing = pd.to_datetime(work.get("listing_date"), errors="coerce")
+    work["symbol"] = work.get("symbol", pd.Series(dtype="object")).map(normalize_symbol_text)
+    work["name_key"] = work.get("name_key", pd.Series(dtype="object")).fillna(work.get("name", pd.Series(dtype="object"))).map(normalize_name_key)
+    need_quote = listing.notna()
+    if "current_price" in work.columns:
+        need_quote = need_quote & pd.to_numeric(work.get("current_price"), errors="coerce").isna()
+    request_rows: list[tuple[str, str]] = []
+    ordered = work.loc[need_quote].copy()
+    if not ordered.empty:
+        ordered["_listing_date"] = pd.to_datetime(ordered.get("listing_date"), errors="coerce")
+        ordered = ordered.sort_values(["_listing_date", "name_key"], ascending=[False, True], na_position="last")
+        for _, row in ordered.head(max_items).iterrows():
+            symbol = text_value(row.get("symbol"), "").strip()
+            name = text_value(row.get("name"), "").strip()
+            if name:
+                request_rows.append((symbol, name))
+    quotes = load_public_quotes_cached(tuple(request_rows)) if request_rows else pd.DataFrame()
+    if quotes.empty:
+        return work
+    quotes = quotes.copy()
+    quotes["symbol"] = quotes.get("symbol", pd.Series(dtype="object")).map(normalize_symbol_text)
+    quotes["name_key"] = quotes.get("name_key", pd.Series(dtype="object")).fillna(quotes.get("name", pd.Series(dtype="object"))).map(normalize_name_key)
+    merged = work.merge(quotes[[c for c in ["name_key", "current_price", "day_change_pct", "market", "quote_asof", "quote_provider"] if c in quotes.columns]], on="name_key", how="left", suffixes=("", "_quote"))
+    for left_col, right_col in [("current_price", "current_price_quote"), ("day_change_pct", "day_change_pct_quote"), ("market", "market_quote")]:
+        if right_col in merged.columns:
+            merged[left_col] = merged.get(left_col).combine_first(merged[right_col])
+    return standardize_issue_frame(merged.drop(columns=[c for c in ["market_quote", "current_price_quote", "day_change_pct_quote", "quote_asof", "quote_provider"] if c in merged.columns]))
+
+
+def overlay_detail_rows_on_frame(df: pd.DataFrame, *, max_items: int = 18) -> pd.DataFrame:
+    if df is None or df.empty:
+        return pd.DataFrame(columns=getattr(df, "columns", []))
+    work = standardize_issue_frame(df.copy())
+    target_cols = [
+        "market",
+        "symbol",
+        "sector",
+        "underwriters",
+        "listing_date",
+        "offer_price",
+        "current_price",
+        "institutional_competition_ratio",
+        "lockup_commitment_ratio",
+        "total_offer_shares",
+        "post_listing_total_shares",
+    ]
+    rows: list[dict[str, Any]] = []
+    attempted = 0
+    for _, row in work.iterrows():
+        current = row.to_dict()
+        needs = any(not has_value(current.get(col)) for col in target_cols)
+        if needs and attempted < max_items:
+            payload = load_issue_detail_overlay_cached(text_value(current.get("symbol"), ""), text_value(current.get("name"), ""))
+            if isinstance(payload, dict):
+                for key, value in payload.items():
+                    if not has_value(value):
+                        continue
+                    if not has_value(current.get(key)) or key in {
+                        "underwriters",
+                        "market",
+                        "symbol",
+                        "sector",
+                        "listing_date",
+                        "offer_price",
+                        "current_price",
+                        "institutional_competition_ratio",
+                        "lockup_commitment_ratio",
+                        "total_offer_shares",
+                        "post_listing_total_shares",
+                    }:
+                        current[key] = value
+            attempted += 1
+        rows.append(current)
+    return standardize_issue_frame(pd.DataFrame(rows))
+
+
+def prepare_issue_frame_for_page(df: pd.DataFrame, *, detail_budget: int = 18, quote_budget: int = 40) -> pd.DataFrame:
+    if df is None or df.empty:
+        return pd.DataFrame(columns=getattr(df, "columns", []))
+    work = prefill_issue_frame_for_display(df)
+    work = overlay_detail_rows_on_frame(work, max_items=detail_budget)
+    work = overlay_public_quotes_on_frame(work, max_items=quote_budget)
+    return add_issue_scores(work)
+
+
+def build_issue_coverage_summary(issues: pd.DataFrame) -> pd.DataFrame:
+    if issues is None or issues.empty:
+        return pd.DataFrame(columns=["필드", "채움", "비율"])
+    rows = []
+    total = len(issues)
+    fields = {
+        "종목코드": "symbol",
+        "시장": "market",
+        "주관사": "underwriters",
+        "상장일": "listing_date",
+        "공모가": "offer_price",
+        "현재가": "current_price",
+        "기관경쟁률": "institutional_competition_ratio",
+        "확약비율": "lockup_commitment_ratio",
+        "IR PDF": "ir_pdf_url",
+    }
+    for label, col in fields.items():
+        if col not in issues.columns:
+            continue
+        filled = int(issues[col].map(has_value).sum())
+        rows.append({"필드": label, "채움": filled, "비율": f"{(filled / total * 100.0):.1f}%"})
+    return pd.DataFrame(rows)
+
+def score_formula_frames(issue: pd.Series) -> dict[str, pd.DataFrame]:
+    inst = safe_float(issue.get("institutional_competition_ratio"))
+    retail = safe_float(issue.get("retail_competition_ratio_live"))
+    offer_price = safe_float(issue.get("offer_price"))
+    lockup = safe_float(issue.get("lockup_commitment_ratio"))
+    float_ratio = safe_float(issue.get("circulating_shares_ratio_on_listing"))
+    existing = safe_float(issue.get("existing_shareholder_ratio"))
+    employee_forfeit = safe_float(issue.get("employee_forfeit_ratio"))
+    current_price = safe_float(issue.get("current_price"))
+    premium = None
+    if current_price not in (None, 0) and offer_price not in (None, 0):
+        premium = (float(current_price) / float(offer_price) - 1.0) * 100.0
+    day_change = safe_float(issue.get("day_change_pct"))
+
+    subscription = pd.DataFrame([
+        {"항목": "기관경쟁률", "현재값": fmt_ratio(inst), "구간": "0→0, 300→25, 800→55, 1500→85, 2500→100", "설명": "높을수록 가점"},
+        {"항목": "청약경쟁률", "현재값": fmt_ratio(retail), "구간": "0→0, 100→10, 300→25, 700→45, 1500→55", "설명": "높을수록 가점"},
+        {"항목": "공모가", "현재값": fmt_won(offer_price), "구간": "2천→5, 1만→8, 2만→12, 5만→8, 10만→5", "설명": "중간 가격대에 소폭 가점"},
+    ])
+    listing = pd.DataFrame([
+        {"항목": "의무보유확약", "현재값": fmt_pct(lockup), "구간": "0→0, 5→10, 10→20, 20→35, 40→45", "설명": "높을수록 품질 가점"},
+        {"항목": "유통가능물량", "현재값": fmt_pct(float_ratio), "구간": "15→30, 25→22, 35→12, 50→5, 80→0", "설명": "낮을수록 품질 가점"},
+        {"항목": "기존주주비율", "현재값": fmt_pct(existing), "구간": "20→20, 40→16, 60→10, 80→4", "설명": "낮을수록 품질 가점"},
+        {"항목": "우리사주 실권", "현재값": fmt_pct(employee_forfeit), "구간": "0→10, 1→8, 3→5, 5→1", "설명": "낮을수록 품질 가점"},
+        {"항목": "공모가 대비 등락", "현재값": fmt_pct(premium, 2, signed=True), "구간": "-30→0, -10→6, 0→10, 20→15, 60→8, 120→4", "설명": "상장 후 가격대 컨텍스트"},
+    ])
+    unlock = pd.DataFrame([
+        {"항목": "유통가능물량", "현재값": fmt_pct(float_ratio), "구간": "10→5, 20→15, 35→35, 50→60, 80→90", "설명": "높을수록 압력 증가"},
+        {"항목": "기존주주비율", "현재값": fmt_pct(existing), "구간": "20→5, 40→15, 60→30, 80→45", "설명": "높을수록 압력 증가"},
+        {"항목": "당일 변동성", "현재값": fmt_pct(day_change, 2, signed=True), "구간": "0→0, 3→5, 7→12, 12→18", "설명": "변동성이 크면 압력 가중"},
+        {"항목": "의무보유확약", "현재값": fmt_pct(lockup), "구간": "0→0, 10→4, 20→10, 40→18", "설명": "높을수록 압력 완화(감점)"},
+    ])
+    return {"subscription": subscription, "listing": listing, "unlock": unlock}
+
+
+def render_score_formula_explainer(issue: pd.Series) -> None:
+    with st.expander("점수 계산 방식 보기", expanded=False):
+        st.caption("모든 점수는 구간 점수표를 선형보간한 뒤 0~100 범위로 절단합니다.")
+        frames = score_formula_frames(issue)
+        st.markdown("**청약 점수 = 기관경쟁률 + 청약경쟁률 + 공모가 보정**")
+        render_scrollable_table(frames["subscription"], key=f"score_formula_subscription_{normalize_name_key(issue.get('name'))}")
+        st.markdown("**상장 품질 = 확약 + 낮은 유통비율 + 낮은 기존주주비율 + 낮은 우리사주 실권 + 상장 후 가격대**")
+        render_scrollable_table(frames["listing"], key=f"score_formula_listing_{normalize_name_key(issue.get('name'))}")
+        st.markdown("**락업 압력 = 유통비율 압력 + 기존주주 압력 + 변동성 압력 - 확약 완화**")
+        render_scrollable_table(frames["unlock"], key=f"score_formula_unlock_{normalize_name_key(issue.get('name'))}")
+
+
+def render_dart_snapshot(snapshot: dict[str, Any], issue: pd.Series | None = None) -> None:
+    if not snapshot:
+        st.info("분석된 DART 스냅샷이 없습니다.")
+        return
+    if snapshot.get("error"):
+        st.error(text_value(snapshot.get("error"), "DART 분석 중 오류가 발생했습니다."))
+        return
+    filing = snapshot.get("filing", {}) or {}
+    company = snapshot.get("company", {}) or {}
+    report_nm = text_value(filing.get("report_nm") or filing.get("report_name"), "DART 보고서")
+    viewer_url = text_value(filing.get("viewer_url") or filing.get("dart_viewer_url"), "").strip()
+    receipt_no = text_value(filing.get("rcept_no") or filing.get("receipt_no"), "")
+    filing_date = compact_date_text(filing.get("rcept_dt") or filing.get("filing_date"), default="-")
+
+    cards = [
+        {"title": "회사", "value": text_value(company.get("corp_name") or company.get("name"), text_value(issue.get("name") if issue is not None else None, "-")), "sub": "분석 대상", "tone": "neutral"},
+        {"title": "보고서", "value": report_nm, "sub": filing_date, "tone": "good" if viewer_url else "neutral"},
+        {"title": "접수번호", "value": receipt_no or "-", "sub": "DART 접수번호", "tone": "neutral"},
+    ]
+    render_soft_cards(cards, columns=3)
+    if viewer_url:
+        link_button_compat("DART 보고서 열기", viewer_url)
+    summary = snapshot_summary_text(snapshot)
+    if summary:
+        st.caption(summary)
+    if issue is not None:
+        overlay_df = snapshot_overlay_frame(issue, snapshot)
+        if not overlay_df.empty:
+            st.markdown("**보강 전 / 후 비교**")
+            render_scrollable_table(overlay_df.rename(columns={"field": "필드", "label": "라벨", "before": "기존값", "after": "보강값"}), key=f"dart_overlay_{normalize_name_key(issue.get('name'))}")
+    evidence_df = snapshot_evidence_frame(snapshot)
+    if not evidence_df.empty:
+        view = evidence_df.copy()
+        if "value" in view.columns:
+            view["value"] = view["value"].map(lambda v: text_value(v, "-"))
+        st.markdown("**추출 근거**")
+        evidence_name = text_value(issue.get('name') if issue is not None else report_nm, report_nm)
+        render_scrollable_table(view, key=f"dart_evidence_{normalize_name_key(evidence_name)}")
+
+
+def score_descriptor(score: Any, *, inverse: bool = False) -> tuple[str, str]:
+    value = safe_float(score)
+    if value is None:
+        return ("데이터 없음", "neutral")
+    if inverse:
+        if value >= 70:
+            return ("압력 큼", "bad")
+        if value >= 45:
+            return ("주의", "warn")
+        return ("완화", "good")
+    if value >= 75:
+        return ("강함", "good")
+    if value >= 55:
+        return ("보통", "warn")
+    return ("약함", "bad")
+
+
+def build_issue_takeaways(issue: pd.Series) -> list[str]:
+    takeaways: list[str] = []
+    stage = text_value(issue.get("stage"), "")
+    market = text_value(issue.get("market"), "")
+    if market != "-":
+        takeaways.append(market)
+    if stage != "-":
+        takeaways.append(stage)
+    institutional = safe_float(issue.get("institutional_competition_ratio"))
+    if institutional is not None and institutional >= 300:
+        takeaways.append(f"기관 {fmt_ratio(institutional)}")
+    lockup = safe_float(issue.get("lockup_commitment_ratio"))
+    if lockup is not None and lockup > 0:
+        takeaways.append(f"확약 {fmt_pct(lockup)}")
+    retail = safe_float(issue.get("retail_competition_ratio_live"))
+    if retail is not None and retail >= 50:
+        takeaways.append(f"청약 {fmt_ratio(retail)}")
+    existing = safe_float(issue.get("existing_shareholder_ratio"))
+    if existing is not None and existing > 0:
+        takeaways.append(f"기존주주 {fmt_pct(existing)}")
+    offer = safe_float(issue.get("offer_price"))
+    current = safe_float(issue.get("current_price"))
+    if offer and current:
+        premium = (current / offer - 1.0) * 100.0
+        if abs(premium) >= 5:
+            takeaways.append(f"공모가대비 {fmt_pct(premium, digits=1, signed=True)}")
+    if has_value(issue.get("ir_pdf_url")):
+        takeaways.append("IR 자료")
+    if has_value(issue.get("dart_viewer_url")):
+        takeaways.append("DART")
+    deduped: list[str] = []
+    seen: set[str] = set()
+    for item in takeaways:
+        if item in seen:
+            continue
+        seen.add(item)
+        deduped.append(item)
+    return deduped[:8]
+
+
+def render_fact_grid(facts: dict[str, Any], *, columns: int = 2) -> None:
+    items = [(str(label), text_value(value, "-")) for label, value in facts.items() if text_value(value, "").strip()]
+    if not items:
+        st.caption("표시할 상세 항목이 없습니다.")
+        return
+    cols_per_row = max(1, min(columns, len(items)))
+    for start in range(0, len(items), cols_per_row):
+        row_items = items[start:start + cols_per_row]
+        cols = st.columns(cols_per_row)
+        for idx, (label, value) in enumerate(row_items):
+            html = (
+                "<div class='ipo-fact-card'>"
+                f"<div class='ipo-fact-label'>{escape(label)}</div>"
+                f"<div class='ipo-fact-value'>{escape(value)}</div>"
+                "</div>"
+            )
+            cols[idx].markdown(html, unsafe_allow_html=True)
+
+
+def render_issue_header(issue: pd.Series) -> None:
+    name = escape(text_value(issue.get("name"), "종목"))
+    summary_bits = [
+        text_value(issue.get("market"), ""),
+        text_value(issue.get("stage"), ""),
+        text_value(issue.get("underwriters"), ""),
+    ]
+    summary_bits = [bit for bit in summary_bits if bit and bit != "-"]
+    summary = " · ".join(summary_bits) if summary_bits else "공모주 상세"
+    st.markdown(
+        f"<div class='ipo-hero'><h2>{name}</h2><p>{escape(summary)}</p></div>",
+        unsafe_allow_html=True,
+    )
+
+
+def render_issue_score_cards(issue: pd.Series) -> None:
+    sub_label, sub_tone = score_descriptor(issue.get("subscription_score"))
+    list_label, list_tone = score_descriptor(issue.get("listing_quality_score"))
+    unlock_label, unlock_tone = score_descriptor(issue.get("unlock_pressure_score"), inverse=True)
+    cards = [
+        {
+            "title": "청약 점수",
+            "value": fmt_num(issue.get("subscription_score"), 1),
+            "sub": f"{sub_label} · 수요예측·청약 분위기",
+            "tone": sub_tone,
+        },
+        {
+            "title": "상장 품질",
+            "value": fmt_num(issue.get("listing_quality_score"), 1),
+            "sub": f"{list_label} · 확약·유통·기존주주 기준",
+            "tone": list_tone,
+        },
+        {
+            "title": "락업 압력",
+            "value": fmt_num(issue.get("unlock_pressure_score"), 1),
+            "sub": f"{unlock_label} · 해제 부담 체감",
+            "tone": unlock_tone,
+        },
+    ]
+    render_soft_cards(cards, columns=3)
+
+
+def build_dashboard_spotlight_cards(issues: pd.DataFrame, today: pd.Timestamp) -> list[dict[str, Any]]:
+    cards: list[dict[str, Any]] = []
+    repo = IPORepository(DATA_DIR)
+    prepared = prefill_issue_frame_for_display(issues)
+
+    subscriptions = repo.upcoming_subscriptions(prepared, today, window_days=45)
+    if not subscriptions.empty:
+        subs = safe_sort_values(subscriptions, ["subscription_start", "subscription_score"], ascending=[True, False]).head(2)
+        for _, row in subs.iterrows():
+            cards.append(
+                {
+                    "title": text_value(row.get("name"), "청약 종목"),
+                    "value": compact_date_range_text(row.get("subscription_start"), row.get("subscription_end")),
+                    "sub": f"청약 · {text_value(row.get('underwriters'), '-')}",
+                    "tone": "good",
+                }
+            )
+
+    listings = repo.upcoming_listings(prepared, today, window_days=60)
+    if not listings.empty:
+        lst = safe_sort_values(listings, ["listing_date", "listing_quality_score"], ascending=[True, False]).head(2)
+        for _, row in lst.iterrows():
+            cards.append(
+                {
+                    "title": text_value(row.get("name"), "상장 종목"),
+                    "value": compact_date_text(row.get("listing_date")),
+                    "sub": f"상장 · {text_value(row.get('market'), '-')}",
+                    "tone": "neutral",
+                }
+            )
+    return cards[:4]
+
+def render_lab_overview_cards(bundle: IPODataBundle, unified_bundle: UnifiedLabBundle) -> None:
+    backtest_versions = BacktestRepository(DATA_DIR).available_versions()
+    cards = [
+        {
+            "title": "락업 이벤트",
+            "value": fmt_num(len(bundle.all_unlocks) if isinstance(bundle.all_unlocks, pd.DataFrame) else 0, 0),
+            "sub": "보호예수 해제 캘린더",
+            "tone": "neutral",
+        },
+        {
+            "title": "실행 신호",
+            "value": fmt_num(len(unified_bundle.signals) if isinstance(unified_bundle.signals, pd.DataFrame) else 0, 0),
+            "sub": "Unified Lab 엔트리 시그널",
+            "tone": "good",
+        },
+        {
+            "title": "턴오버 트레이드",
+            "value": fmt_num(len(unified_bundle.turnover_trades) if isinstance(unified_bundle.turnover_trades, pd.DataFrame) else 0, 0),
+            "sub": "해제 물량 소화 전략",
+            "tone": "warn",
+        },
+        {
+            "title": "기본 백테스트",
+            "value": fmt_num(len(backtest_versions), 0),
+            "sub": "락업 전략 저장 버전",
+            "tone": "neutral",
+        },
+    ]
+    render_soft_cards(cards, columns=4)
+
+
+
 def render_issue_overview(issue: pd.Series) -> None:
     issue = hydrate_issue_for_display(issue)
-    price_cols = st.columns(4)
-    price_cols[0].metric("공모가", fmt_won(issue.get("offer_price")))
-    price_cols[1].metric("현재가", fmt_won(issue.get("current_price")))
-    price_cols[2].metric("상장일", compact_date_text(issue.get("listing_date")))
-    price_cols[3].metric("청약 일정", compact_date_range_text(issue.get("subscription_start"), issue.get("subscription_end")))
+    render_issue_header(issue)
+    render_badge_row(build_issue_takeaways(issue))
 
-    stats_cols = st.columns(4)
-    stats_cols[0].metric("기관경쟁률", fmt_ratio(issue.get("institutional_competition_ratio")))
-    stats_cols[1].metric("청약경쟁률", fmt_ratio(issue.get("retail_competition_ratio_live")))
-    stats_cols[2].metric("확약비율", fmt_pct(issue.get("lockup_commitment_ratio")))
-    stats_cols[3].metric("유통가능물량", fmt_pct(issue.get("circulating_shares_ratio_on_listing")))
+    top_cards = [
+        {"title": "공모가", "value": fmt_won(issue.get("offer_price")), "sub": "확정 공모가", "tone": "neutral"},
+        {"title": "현재가", "value": fmt_won(issue.get("current_price")), "sub": "최근 반영 가격", "tone": "neutral"},
+        {"title": "상장일", "value": compact_date_text(issue.get("listing_date")), "sub": "신규상장 기준일", "tone": "neutral"},
+        {"title": "청약 일정", "value": compact_date_range_text(issue.get("subscription_start"), issue.get("subscription_end")), "sub": "대표 청약 일정", "tone": "neutral"},
+    ]
+    render_soft_cards(top_cards, columns=4)
+
+    stats_cards = [
+        {"title": "기관경쟁률", "value": fmt_ratio(issue.get("institutional_competition_ratio")), "sub": "수요예측 기준", "tone": "good" if safe_float(issue.get("institutional_competition_ratio")) not in (None, 0) else "neutral"},
+        {"title": "청약경쟁률", "value": fmt_ratio(issue.get("retail_competition_ratio_live")), "sub": "실시간/저장 청약 경쟁률", "tone": "good" if safe_float(issue.get("retail_competition_ratio_live")) not in (None, 0) else "neutral"},
+        {"title": "확약비율", "value": fmt_pct(issue.get("lockup_commitment_ratio")), "sub": "의무보유확약", "tone": "good" if safe_float(issue.get("lockup_commitment_ratio")) not in (None, 0) else "neutral"},
+        {"title": "유통가능물량", "value": fmt_pct(issue.get("circulating_shares_ratio_on_listing")), "sub": "상장 직후 유통비율", "tone": "warn" if safe_float(issue.get("circulating_shares_ratio_on_listing")) not in (None, 0) else "neutral"},
+    ]
+    render_soft_cards(stats_cards, columns=4)
+    render_issue_score_cards(issue)
+    render_score_formula_explainer(issue)
 
     detail_payload = {
         "종목코드": text_value(issue.get("symbol")),
         "시장": text_value(issue.get("market")),
         "업종": text_value(issue.get("sector")),
         "주관사": text_value(issue.get("underwriters")),
+        "수요예측일": compact_date_text(issue.get("forecast_date")),
         "기존주주비율": fmt_pct(issue.get("existing_shareholder_ratio")),
         "우리사주 실권": fmt_pct(issue.get("employee_forfeit_ratio")),
         "구주매출비중": fmt_pct(issue.get("secondary_sale_ratio")),
         "총공모주식수": fmt_num(issue.get("total_offer_shares"), 0),
         "상장후총주식수": fmt_num(issue.get("post_listing_total_shares"), 0),
-        "메모": text_value(issue.get("notes"), ""),
     }
     visible_details = {
         key: value
         for key, value in detail_payload.items()
         if key in {"종목코드", "시장", "업종", "주관사"} or (str(value).strip() not in {"-", "", "nan", "NaN"})
     }
-    st.json(visible_details)
 
-
+    left, right = st.columns([1.15, 0.85])
+    with left:
+        st.markdown("**핵심 정보**")
+        render_fact_grid(visible_details, columns=2)
+    with right:
+        st.markdown("**수요예측 / 문서**")
+        doc_cards = [
+            {"title": "수요예측일", "value": compact_date_text(issue.get("forecast_date")), "sub": "기관 수요예측 일정", "tone": "neutral"},
+            {"title": "IR 자료", "value": "준비됨" if has_value(issue.get("ir_pdf_url")) else "미연결", "sub": compact_date_text(issue.get("ir_date"), default="최근 PDF 미확인"), "tone": "good" if has_value(issue.get("ir_pdf_url")) else "neutral"},
+            {"title": "DART 연결", "value": "연결됨" if has_value(issue.get("dart_viewer_url")) else "미연결", "sub": compact_date_text(issue.get("dart_filing_date"), default=text_value(issue.get("dart_report_nm"), "접수일 미확인")), "tone": "good" if has_value(issue.get("dart_viewer_url")) else "neutral"},
+        ]
+        render_soft_cards(doc_cards, columns=3)
+        link_cols = st.columns(3)
+        with link_cols[0]:
+            link_button_compat("IR PDF 열기", issue.get("ir_pdf_url"))
+        with link_cols[1]:
+            link_button_compat("IR 자료실", issue.get("ir_source_page"))
+        with link_cols[2]:
+            link_button_compat("DART 보고서 열기", issue.get("dart_viewer_url"))
+        if has_value(issue.get("notes")):
+            st.markdown(f"<div class='ipo-note'>{escape(text_value(issue.get('notes'), ''))}</div>", unsafe_allow_html=True)
 
 def render_dashboard(
     bundle: IPODataBundle,
@@ -1072,7 +1939,7 @@ def render_dashboard(
     source_mode: str,
 ) -> None:
     repo = IPORepository(DATA_DIR)
-    issues = add_issue_scores(bundle.issues)
+    issues = prefill_issue_frame_for_display(add_issue_scores(bundle.issues))
     snapshot_bundle = load_market_snapshot_bundle_cached(prefer_live, True)
     snapshot = snapshot_bundle["frame"]
     snapshot_source = snapshot_bundle["source"]
@@ -1084,19 +1951,6 @@ def render_dashboard(
     subscription_count = int(len(repo.upcoming_subscriptions(issues, today, window_days=30)))
     listing_count = int(len(repo.upcoming_listings(issues, today, window_days=30)))
 
-    label_map = {
-        "KOSPI": "코스피",
-        "KOSDAQ": "코스닥",
-        "NASDAQ100 Futures": "나스닥선물",
-        "Gold": "금",
-        "USD/KRW": "환율",
-    }
-    row_specs = [
-        ("KOSPI", "코스피"),
-        ("KOSDAQ", "코스닥"),
-        ("NASDAQ100 Futures", "나스닥선물"),
-        ("Gold", "금"),
-    ]
     snapshot_map: dict[str, dict[str, Any]] = {}
     if isinstance(snapshot, pd.DataFrame) and not snapshot.empty:
         work = snapshot.copy()
@@ -1104,21 +1958,46 @@ def render_dashboard(
         for _, row in work.iterrows():
             snapshot_map[str(row.get("name") or "")] = row.to_dict()
 
-    market_cols = st.columns(4)
-    for col, (source_name, label) in zip(market_cols, row_specs):
-        row = snapshot_map.get(source_name)
-        if row:
-            col.metric(label, fmt_num(row.get("last"), 0), fmt_pct(row.get("change_pct"), 2, signed=True))
-        else:
-            col.metric(label, "준비 중")
+    hero_lines = [
+        f"{compact_date_text(today)} 기준으로 30일 내 청약 {subscription_count}건, 상장 {listing_count}건을 한 화면에서 확인합니다.",
+        "38 수요예측·IR·보호예수 해제 데이터와 실험실 기능은 상세 화면에서 이어서 확인할 수 있습니다.",
+    ]
+    st.markdown(
+        f"<div class='ipo-hero'><h2>오늘 브리핑</h2><p>{escape(' '.join(hero_lines))}</p></div>",
+        unsafe_allow_html=True,
+    )
 
-    info_cols = st.columns(4)
-    info_cols[0].metric("30일 내 청약", subscription_count)
-    info_cols[1].metric("30일 내 상장", listing_count)
+    market_cards = []
+    for source_name, label in [("KOSPI", "코스피"), ("KOSDAQ", "코스닥"), ("NASDAQ100 Futures", "나스닥선물"), ("Gold", "금")]:
+        row = snapshot_map.get(source_name, {})
+        value_color, sub_color = market_move_colors(row.get("change_pct") if row else None)
+        market_cards.append(
+            {
+                "title": label,
+                "value": fmt_num(row.get("last"), 0) if row else "준비 중",
+                "sub": fmt_pct(row.get("change_pct"), 2, signed=True) if row else "데이터 미수신",
+                "tone": "neutral",
+                "value_color": value_color,
+                "sub_color": sub_color,
+            }
+        )
+    render_soft_cards(market_cards, columns=4)
+
     fx_row = snapshot_map.get("USD/KRW")
-    info_cols[2].metric("환율", fmt_num(fx_row.get("last"), 0) if fx_row else "준비 중", fmt_pct(fx_row.get("change_pct"), 2, signed=True) if fx_row else None)
     mood_delta = "-" if mood.get("score") is None else f"score {fmt_num(mood.get('score'), 1)}"
-    info_cols[3].metric("시장 분위기", str(mood.get("label") or "데이터없음"), mood_delta)
+    fx_value_color, fx_sub_color = market_move_colors(fx_row.get("change_pct") if fx_row else None)
+    info_cards = [
+        {"title": "30일 내 청약", "value": fmt_num(subscription_count, 0), "sub": "청약 일정 종목 수", "tone": "good" if subscription_count else "neutral"},
+        {"title": "30일 내 상장", "value": fmt_num(listing_count, 0), "sub": "상장 예정 종목 수", "tone": "neutral"},
+        {"title": "환율", "value": fmt_num(fx_row.get("last"), 0) if fx_row else "준비 중", "sub": fmt_pct(fx_row.get("change_pct"), 2, signed=True) if fx_row else "데이터 미수신", "tone": "neutral", "value_color": fx_value_color, "sub_color": fx_sub_color},
+        {"title": "시장 분위기", "value": str(mood.get("label") or "데이터없음"), "sub": mood_delta, "tone": "warn" if str(mood.get("label") or "") == "조심" else "good" if str(mood.get("label") or "") == "우호" else "neutral"},
+    ]
+    render_soft_cards(info_cards, columns=4)
+
+    spotlight_cards = build_dashboard_spotlight_cards(issues, today)
+    if spotlight_cards:
+        st.markdown("**가까운 일정**")
+        render_soft_cards(spotlight_cards, columns=min(4, len(spotlight_cards)))
 
     render_sample_data_warning(source_mode, issue_counts, snapshot_source)
     snapshot_saved_at = snapshot_bundle.get("saved_at")
@@ -1140,7 +2019,7 @@ def render_dashboard(
 def render_explorer(bundle: IPODataBundle, prefer_live: bool) -> None:
     st.subheader("딜 탐색기")
     st.caption("샘플, 실데이터, 전략 데이터를 한 화면에서 필터링하고 상세 확인하는 화면입니다.")
-    issues = add_issue_scores(bundle.issues)
+    issues = prefill_issue_frame_for_display(add_issue_scores(bundle.issues))
     if issues.empty:
         st.info("표시할 종목이 없습니다.")
         return
@@ -1166,6 +2045,7 @@ def render_explorer(bundle: IPODataBundle, prefer_live: bool) -> None:
         )
         filtered = filtered[mask]
     filtered = issue_recency_sort(filtered).reset_index(drop=True)
+    filtered = prepare_issue_frame_for_page(filtered, detail_budget=36, quote_budget=60)
 
     display = filtered[[
         "name",
@@ -1180,8 +2060,23 @@ def render_explorer(bundle: IPODataBundle, prefer_live: bool) -> None:
         "unlock_pressure_score",
         "source",
     ]].copy()
-    display["listing_date"] = pd.to_datetime(display["listing_date"], errors="coerce").dt.strftime("%Y-%m-%d")
-    st.dataframe(display, hide_index=True, use_container_width=True)
+    display["listing_date"] = pd.to_datetime(display["listing_date"], errors="coerce").dt.strftime("%y.%m.%d")
+    display["offer_price"] = display["offer_price"].map(compact_offer_text)
+    display["current_price"] = display["current_price"].map(compact_offer_text)
+    display = display.rename(columns={
+        "name": "종목명",
+        "market": "시장",
+        "stage": "단계",
+        "underwriters": "주관사",
+        "listing_date": "상장일",
+        "offer_price": "공모가",
+        "current_price": "현재가",
+        "subscription_score": "청약점수",
+        "listing_quality_score": "상장품질",
+        "unlock_pressure_score": "락업압력",
+        "source": "출처",
+    })
+    render_scrollable_table(display, key="deal_explorer_table")
     render_download_button("탐색 결과 CSV 내려받기", display, "deal_explorer.csv")
 
     issue = issue_selector(filtered.reset_index(drop=True), key="explorer_issue")
@@ -1193,12 +2088,7 @@ def render_explorer(bundle: IPODataBundle, prefer_live: bool) -> None:
         render_issue_overview(issue)
     with t2:
         st.markdown("**연결 가능한 문서 링크**")
-        if has_value(issue.get("kind_url")):
-            st.markdown(f"- KIND 신규상장기업현황: {text_value(issue.get('kind_url'))}")
-        if has_value(issue.get("ir_url")):
-            st.markdown(f"- KIND IR자료실: {text_value(issue.get('ir_url'))}")
-        if has_value(issue.get("dart_viewer_url")):
-            st.markdown(f"- DART 뷰어: {text_value(issue.get('dart_viewer_url'))}")
+        render_issue_resource_links(hydrate_issue_for_display(issue), show_header=False)
         if DartClient.from_env() is None:
             st.info("DART API 키를 넣으면 최근 공시를 종목별로 바로 조회할 수 있습니다.")
         else:
@@ -1249,12 +2139,13 @@ def select_subscription_candidates(issues: pd.DataFrame, today: pd.Timestamp | N
     stage = work.get("stage", pd.Series(index=work.index, dtype="object")).fillna("").astype(str)
     sub_start = pd.to_datetime(work.get("subscription_start"), errors="coerce")
     sub_end = pd.to_datetime(work.get("subscription_end"), errors="coerce")
-    primary = stage.isin(["청약예정", "청약중", "청약완료"])
-    fallback = (
-        (sub_start.notna() & (sub_start >= today - pd.Timedelta(days=30)) & (sub_start <= today + pd.Timedelta(days=180)))
-        | (sub_end.notna() & (sub_end >= today - pd.Timedelta(days=30)) & (sub_end <= today + pd.Timedelta(days=180)))
+    in_window = (
+        (sub_start.notna() & (sub_start >= today - pd.Timedelta(days=14)) & (sub_start <= today + pd.Timedelta(days=180)))
+        | (sub_end.notna() & (sub_end >= today - pd.Timedelta(days=14)) & (sub_end <= today + pd.Timedelta(days=180)))
     )
-    out = work.loc[primary | fallback].copy()
+    primary = stage.isin(["청약예정", "청약중"]) & in_window
+    recent_done = stage.eq("청약완료") & in_window
+    out = work.loc[primary | recent_done | in_window].copy()
     if out.empty:
         return out
     return issue_recency_sort(out, today=today)
@@ -1265,27 +2156,44 @@ def select_listing_candidates(issues: pd.DataFrame, today: pd.Timestamp | None =
     work = add_issue_scores(issues)
     if work.empty:
         return work
-    stage = work.get("stage", pd.Series(index=work.index, dtype="object")).fillna("").astype(str)
     listing = pd.to_datetime(work.get("listing_date"), errors="coerce")
-    primary = stage.isin(["상장예정", "상장후"])
-    fallback = listing.notna() & (listing >= today - pd.Timedelta(days=720))
-    out = work.loc[primary | fallback].copy()
+    window = listing.notna() & (listing >= today - pd.Timedelta(days=90)) & (listing <= today + pd.Timedelta(days=120))
+    out = work.loc[window].copy()
     if out.empty:
         return out
-    return out
+    return safe_sort_values(out, ["listing_date", "listing_quality_score"], ascending=[False, False]).reset_index(drop=True)
+
 
 
 
 def render_subscription_page(issues: pd.DataFrame, today: pd.Timestamp) -> None:
     st.subheader("청약 단계")
-    st.caption("기관경쟁률, 증권사, 공모가와 비례청약 손익분기까지 같이 보는 화면입니다.")
-    df = select_subscription_candidates(issues, today=today)
+    st.caption("기관경쟁률, 의무보유확약, IR 자료, 비례청약 손익분기까지 한 번에 보는 화면입니다.")
+    df = prepare_issue_frame_for_page(select_subscription_candidates(issues, today=today), detail_budget=28, quote_budget=48)
     if df.empty:
         st.info("현재 불러온 일정 기준으로 미래/최근 청약 종목이 없습니다. 캐시를 새로고침했는데도 비어 있으면 실제 예정 종목이 없는 상태일 가능성이 큽니다.")
         return
 
-    left, right = st.columns([1.45, 0.95])
     sorted_df = safe_sort_values(df, ["subscription_start", "subscription_score"], ascending=[True, False]).reset_index(drop=True)
+    ir_count = int(sorted_df["ir_pdf_url"].map(has_value).sum()) if "ir_pdf_url" in sorted_df.columns else 0
+    demand_count = int(pd.to_numeric(sorted_df.get("institutional_competition_ratio", pd.Series(dtype="object")), errors="coerce").notna().sum())
+    if "subscription_start" in sorted_df.columns:
+        _sub_dates = pd.to_datetime(sorted_df.get("subscription_start"), errors="coerce")
+        _future_dates = _sub_dates[_sub_dates >= pd.Timestamp(today).normalize() - pd.Timedelta(days=1)]
+        nearest_anchor = _future_dates.min() if not _future_dates.empty else _sub_dates.max()
+        nearest_date = compact_date_text(nearest_anchor)
+    else:
+        nearest_date = "-"
+    summary_cards = [
+        {"title": "표시 종목", "value": fmt_num(len(sorted_df), 0), "sub": "청약 예정·진행·완료 포함", "tone": "neutral"},
+        {"title": "가장 가까운 청약", "value": nearest_date, "sub": "대표 시작일 기준", "tone": "good"},
+        {"title": "수요예측 결과", "value": fmt_num(demand_count, 0), "sub": "기관경쟁률 기재 종목", "tone": "good" if demand_count else "neutral"},
+        {"title": "IR 연결", "value": fmt_num(ir_count, 0), "sub": "PDF 링크 포함", "tone": "neutral"},
+    ]
+    render_soft_cards(summary_cards, columns=4)
+
+    left, right = st.columns([1.35, 0.95])
+    issue = None
     with left:
         display = pd.DataFrame(
             {
@@ -1293,31 +2201,33 @@ def render_subscription_page(issues: pd.DataFrame, today: pd.Timestamp) -> None:
                 "시장": sorted_df.get("market"),
                 "단계": sorted_df.get("stage"),
                 "청약": [compact_date_range_text(s, e) for s, e in zip(sorted_df.get("subscription_start"), sorted_df.get("subscription_end"))],
+                "수요예측": sorted_df.get("forecast_date").map(compact_date_text),
                 "주관사": sorted_df.get("underwriters"),
                 "희망가": [compact_price_band_text(low, high) for low, high in zip(sorted_df.get("price_band_low"), sorted_df.get("price_band_high"))],
                 "공모가": sorted_df.get("offer_price").map(compact_offer_text),
-                "청약경쟁률": sorted_df.get("retail_competition_ratio_live").map(fmt_ratio),
                 "기관경쟁률": sorted_df.get("institutional_competition_ratio").map(fmt_ratio),
+                "확약": sorted_df.get("lockup_commitment_ratio").map(lambda v: compact_ratio_text(v, digits=1)),
+                "IR": sorted_df.get("ir_pdf_url", pd.Series(index=sorted_df.index, dtype="object")).map(lambda v: "PDF" if has_value(v) else "-"),
                 "점수": sorted_df.get("subscription_score").map(lambda v: fmt_num(v, 1)),
             }
         )
         render_scrollable_table(display, key="subscription_table")
         render_download_button("청약 후보 CSV 내려받기", display, "subscriptions.csv")
-
         issue = issue_selector(sorted_df, key="subscription_issue")
-        if issue is not None:
-            render_issue_overview(issue)
 
     with right:
+        if issue is not None:
+            render_issue_overview(issue)
+        st.markdown("---")
         st.markdown("**비례청약 손익분기 계산기**")
         issue_names = sorted_df["name"].tolist()
         selected_name = st.selectbox("계산 기준 종목", options=issue_names, key="calc_issue")
-        issue = sorted_df[sorted_df["name"] == selected_name].iloc[0]
-        default_offer_price = int(safe_float(issue.get("offer_price"), 10000.0) or 10000)
+        calc_issue = sorted_df[sorted_df["name"] == selected_name].iloc[0]
+        default_offer_price = int(safe_float(calc_issue.get("offer_price"), 10000.0) or 10000)
         deposit_amount = st.number_input("투입 증거금(원)", min_value=100000, step=100000, value=1000000)
         offer_price = st.number_input("공모가(원)", min_value=1000, step=100, value=default_offer_price)
         target_sell_price = st.number_input("예상 매도가(원)", min_value=1000, step=100, value=int(default_offer_price * 1.3))
-        default_ratio = safe_float(issue.get("retail_competition_ratio_live"), 500.0) or 500.0
+        default_ratio = safe_float(calc_issue.get("retail_competition_ratio_live"), 500.0) or 500.0
         competition_ratio = st.number_input("비례 경쟁률(대 1)", min_value=1.0, value=float(default_ratio), step=10.0)
         fee = st.number_input("청약 수수료(원)", min_value=0, value=2000, step=500)
         result = proportional_subscription_model(
@@ -1327,38 +2237,50 @@ def render_subscription_page(issues: pd.DataFrame, today: pd.Timestamp) -> None:
             competition_ratio=float(safe_float(competition_ratio, 1.0) or 1.0),
             fee=float(safe_float(fee, 0.0) or 0.0),
         )
-        c1, c2 = st.columns(2)
-        c1.metric("예상 배정 주수", f"{result.expected_allocated_shares:,.2f}주")
-        c2.metric("예상 손익", fmt_won(result.expected_pnl, 0))
-        c3, c4 = st.columns(2)
-        c3.metric("주당 예상 차익", fmt_won(result.expected_profit_per_share, 0))
-        be_ratio = "-" if result.break_even_competition_ratio is None else f"{result.break_even_competition_ratio:,.2f}:1"
-        c4.metric("손익분기 경쟁률", be_ratio)
+        calc_cards = [
+            {"title": "예상 배정 주수", "value": f"{result.expected_allocated_shares:,.2f}주", "sub": "비례 경쟁률 가정", "tone": "neutral"},
+            {"title": "예상 손익", "value": fmt_won(result.expected_pnl, 0), "sub": "수수료 포함", "tone": "good" if safe_float(result.expected_pnl) not in (None, 0) else "neutral"},
+            {"title": "주당 예상 차익", "value": fmt_won(result.expected_profit_per_share, 0), "sub": "예상 매도가 기준", "tone": "neutral"},
+            {"title": "손익분기 경쟁률", "value": "-" if result.break_even_competition_ratio is None else f"{result.break_even_competition_ratio:,.2f}:1", "sub": "예상 매도가 기준", "tone": "warn"},
+        ]
+        render_soft_cards(calc_cards, columns=2)
         st.caption("실제 배정은 증권사별 균등/비례 구조와 반올림 규칙에 따라 달라질 수 있습니다.")
 
 
 
 def render_listing_page(issues: pd.DataFrame, prefer_live: bool, today: pd.Timestamp) -> None:
     st.subheader("상장 단계")
-    st.caption("확약, 우리사주 실권, 유통가능물량, 기존주주비율, 현재가와 기술신호를 같이 봅니다.")
-    target_df = select_listing_candidates(issues, today=today)
+    st.caption("확약, 유통비율, 기존주주비율, IR 자료와 기술신호를 같이 확인하는 화면입니다.")
+    target_df = prepare_issue_frame_for_page(select_listing_candidates(issues, today=today), detail_budget=48, quote_budget=80)
     if target_df.empty:
         st.info("표시할 상장 종목이 없습니다.")
         return
 
     sorted_target = safe_sort_values(target_df, ["listing_date", "listing_quality_score"], ascending=[False, False]).reset_index(drop=True)
+    ir_count = int(sorted_target["ir_pdf_url"].map(has_value).sum()) if "ir_pdf_url" in sorted_target.columns else 0
+    lockup_count = int(pd.to_numeric(sorted_target.get("lockup_commitment_ratio", pd.Series(dtype="object")), errors="coerce").notna().sum())
+    latest_listing = compact_date_text(pd.to_datetime(sorted_target.get("listing_date"), errors="coerce").max()) if "listing_date" in sorted_target.columns else "-"
+    summary_cards = [
+        {"title": "표시 종목", "value": fmt_num(len(sorted_target), 0), "sub": "최근 2년 상장 포함", "tone": "neutral"},
+        {"title": "가장 최근 상장", "value": latest_listing, "sub": "상장일 기준", "tone": "neutral"},
+        {"title": "확약 데이터", "value": fmt_num(lockup_count, 0), "sub": "의무보유확약 기재 종목", "tone": "good" if lockup_count else "neutral"},
+        {"title": "IR 연결", "value": fmt_num(ir_count, 0), "sub": "PDF 링크 포함", "tone": "neutral"},
+    ]
+    render_soft_cards(summary_cards, columns=4)
+
     display = pd.DataFrame(
         {
             "종목명": sorted_target.get("name"),
             "시장": sorted_target.get("market"),
             "상장일": sorted_target.get("listing_date").map(compact_date_text),
             "청약": [compact_date_range_text(s, e) for s, e in zip(sorted_target.get("subscription_start"), sorted_target.get("subscription_end"))],
+            "기관경쟁률": sorted_target.get("institutional_competition_ratio").map(fmt_ratio),
             "공모가": sorted_target.get("offer_price").map(compact_offer_text),
             "확약": sorted_target.get("lockup_commitment_ratio").map(lambda v: compact_ratio_text(v, digits=1)),
             "유통": sorted_target.get("circulating_shares_ratio_on_listing").map(lambda v: compact_ratio_text(v, digits=1)),
             "기존주주": sorted_target.get("existing_shareholder_ratio").map(lambda v: compact_ratio_text(v, digits=1)),
             "현재가": sorted_target.get("current_price").map(compact_offer_text),
-            "등락": sorted_target.get("day_change_pct").map(lambda v: compact_ratio_text(v, digits=1, signed=True)),
+            "IR": sorted_target.get("ir_pdf_url", pd.Series(index=sorted_target.index, dtype="object")).map(lambda v: "PDF" if has_value(v) else "-"),
             "점수": sorted_target.get("listing_quality_score").map(lambda v: fmt_num(v, 1)),
         }
     )
@@ -1387,13 +2309,14 @@ def render_listing_page(issues: pd.DataFrame, prefer_live: bool, today: pd.Times
             signal = live_signal.get("signal")
             history = live_signal.get("history", pd.DataFrame())
             source_label = "KIS"
-    c1, c2, c3, c4, c5 = st.columns(5)
-    c1.metric("기술신호", signal)
-    c2.metric("MA20", fmt_won(ma20))
-    c3.metric("MA60", fmt_won(ma60))
-    c4.metric("RSI14", fmt_num(rsi14, 1))
-    c5.metric("품질점수", fmt_num(issue.get("listing_quality_score"), 1))
-    st.caption(f"기술신호 소스: {source_label}")
+    tech_cards = [
+        {"title": "기술신호", "value": text_value(signal), "sub": f"소스 {source_label}", "tone": "good" if text_value(signal) in {"강세", "회복"} else "warn" if text_value(signal) == "중립" else "neutral"},
+        {"title": "MA20", "value": fmt_won(ma20), "sub": "20일 이동평균", "tone": "neutral"},
+        {"title": "MA60", "value": fmt_won(ma60), "sub": "60일 이동평균", "tone": "neutral"},
+        {"title": "RSI14", "value": fmt_num(rsi14, 1), "sub": "상대강도지수", "tone": "neutral"},
+        {"title": "품질점수", "value": fmt_num(issue.get("listing_quality_score"), 1), "sub": "상장 품질 종합", "tone": "good"},
+    ]
+    render_soft_cards(tech_cards, columns=5)
     if not history.empty:
         chart_df = history[["date", "close"]].rename(columns={"date": "날짜", "close": "종가"}).set_index("날짜")
         st.line_chart(chart_df)
@@ -1953,9 +2876,53 @@ def render_minute_bridge_page(bundle: IPODataBundle, issues: pd.DataFrame, today
             st.dataframe(skip_reasons.head(200), hide_index=True, use_container_width=True)
 
 
-def render_unlock_page(issues: pd.DataFrame, all_unlocks: pd.DataFrame, today: pd.Timestamp) -> None:
+
+def _merge_unlocks_with_seibro(
+    unlocks: pd.DataFrame,
+    issues: pd.DataFrame,
+    seibro_releases: pd.DataFrame | None = None,
+) -> pd.DataFrame:
+    issue_cols = [
+        c
+        for c in [
+            "name",
+            "unlock_pressure_score",
+            "market",
+            "current_price",
+            "offer_price",
+            "post_listing_total_shares",
+            "existing_shareholder_ratio",
+            "lockup_commitment_ratio",
+        ]
+        if c in issues.columns
+    ]
+    joined = unlocks.merge(issues[issue_cols], on="name", how="left") if issue_cols else unlocks.copy()
+    joined["name_key"] = joined.get("name", pd.Series(dtype="object")).map(normalize_name_key)
+    joined["_unlock_date_raw"] = pd.to_datetime(joined.get("unlock_date"), errors="coerce").dt.normalize()
+
+    if isinstance(seibro_releases, pd.DataFrame) and not seibro_releases.empty:
+        seibro = seibro_releases.copy()
+        seibro["name_key"] = seibro.get("name_key", seibro.get("name", pd.Series(dtype="object"))).map(normalize_name_key)
+        seibro["release_date"] = pd.to_datetime(seibro.get("release_date"), errors="coerce").dt.normalize()
+        seibro = seibro.dropna(subset=["release_date"]).copy()
+        if not seibro.empty:
+            agg = seibro.groupby(["name_key", "release_date"], dropna=False, as_index=False).agg({
+                "name": "first",
+                "market": "first",
+                "release_shares": "sum",
+                "remaining_locked_shares": "sum",
+                "source_detail": "first",
+            })
+            joined = joined.merge(agg, left_on=["name_key", "_unlock_date_raw"], right_on=["name_key", "release_date"], how="left", suffixes=("", "_seibro"))
+            denom = pd.to_numeric(joined.get("post_listing_total_shares"), errors="coerce")
+            numer = pd.to_numeric(joined.get("release_shares"), errors="coerce")
+            joined["release_ratio_of_total"] = ((numer / denom) * 100.0).where((denom > 0) & numer.notna())
+    return joined
+
+
+def render_unlock_page(issues: pd.DataFrame, all_unlocks: pd.DataFrame, today: pd.Timestamp, seibro_releases: pd.DataFrame | None = None) -> None:
     st.subheader("보호예수 해제 / 알림")
-    st.caption("보호예수 해제 캘린더와 이례적 가격변동, 기술신호를 함께 관리합니다.")
+    st.caption("보호예수 해제 캘린더와 이례적 가격변동, 기술신호를 함께 관리합니다. Seibro 실제 해제물량은 최근 조회 범위에서 이름/날짜가 맞는 항목만 함께 표시합니다.")
     issues = add_issue_scores(issues)
     alert_engine = AlertEngine()
 
@@ -1969,15 +2936,37 @@ def render_unlock_page(issues: pd.DataFrame, all_unlocks: pd.DataFrame, today: p
     if unlocks.empty:
         st.info("표시할 보호예수 해제 일정이 없습니다.")
     else:
-        joined = unlocks.merge(
-            issues[["name", "unlock_pressure_score", "market", "current_price", "offer_price"]],
-            on="name",
-            how="left",
-        )
-        joined["listing_date"] = pd.to_datetime(joined["listing_date"], errors="coerce").dt.strftime("%Y-%m-%d")
-        joined["unlock_date"] = pd.to_datetime(joined["unlock_date"], errors="coerce").dt.strftime("%Y-%m-%d")
-        st.dataframe(joined, hide_index=True, use_container_width=True)
-        render_download_button("unlock 일정 CSV 내려받기", joined, "unlock_calendar.csv")
+        joined = _merge_unlocks_with_seibro(unlocks, issues, seibro_releases)
+
+        def col(name: str) -> pd.Series:
+            if name in joined.columns:
+                return joined[name]
+            return pd.Series([pd.NA] * len(joined), index=joined.index, dtype="object")
+
+        display = pd.DataFrame({
+            "종목명": col("name"),
+            "시장": col("market"),
+            "term": col("term"),
+            "상장일": pd.to_datetime(col("listing_date"), errors="coerce").dt.strftime("%y.%m.%d"),
+            "해제일": pd.to_datetime(col("unlock_date"), errors="coerce").dt.strftime("%y.%m.%d"),
+            "실제 해제주식수": col("release_shares").map(lambda v: fmt_num(v, 0)),
+            "전체주식대비": col("release_ratio_of_total").map(lambda v: compact_ratio_text(v, digits=2)),
+            "예수잔량": col("remaining_locked_shares").map(lambda v: fmt_num(v, 0)),
+            "공모가": col("offer_price").map(compact_offer_text),
+            "현재가": col("current_price").map(compact_offer_text),
+            "압력점수": col("unlock_pressure_score").map(lambda v: fmt_num(v, 1)),
+        })
+        render_scrollable_table(display, key="unlock_table")
+        matched_count = int(pd.to_numeric(col("release_shares"), errors="coerce").notna().sum())
+        if matched_count:
+            st.caption(f"Seibro 실제 해제물량 매칭 {matched_count}건")
+        else:
+            st.caption("현재 조회 범위에서는 Seibro 실제 해제물량과 매칭된 종목이 없습니다.")
+        export_joined = joined.copy()
+        for export_col in ["listing_date", "unlock_date", "release_date"]:
+            if export_col in export_joined.columns:
+                export_joined[export_col] = pd.to_datetime(export_joined[export_col], errors="coerce").dt.strftime("%Y-%m-%d")
+        render_download_button("unlock 일정 CSV 내려받기", export_joined, "unlock_calendar.csv")
 
     settings = AlertSettings(
         unlock_alert_days=alert_days,
@@ -3052,6 +4041,7 @@ def render_settings_page(source_mode: str, prefer_live: bool, external_unlock_pa
 
 
 
+
 def render_lab_page(
     bundle: IPODataBundle,
     issues: pd.DataFrame,
@@ -3066,6 +4056,8 @@ def render_lab_page(
     if not render_experimental_lab_gate():
         return
     st.subheader("실험실")
+    render_lab_overview_cards(bundle, unified_bundle)
+    st.caption("락업 자동매수, 5분봉 브리지, 턴오버 전략, 백테스트, 쇼츠 자동화를 한곳에서 관리합니다.")
     if getattr(unified_bundle.paths, "workspace", None) is not None:
         workspace_label = str(unified_bundle.paths.workspace)
         if "sample_unified_lab_workspace" in workspace_label:
@@ -3123,6 +4115,7 @@ def render_data_admin_page(
 
 
 def main() -> None:
+    inject_global_styles()
     st.title("공모주 알리미")
 
     repo = IPORepository(DATA_DIR)
@@ -3217,7 +4210,8 @@ def main() -> None:
         render_listing_page(issues, prefer_live, today)
     elif page == "보호예수":
         assert bundle is not None
-        render_unlock_page(issues, bundle.all_unlocks, today)
+        seibro_releases = bundle.raw_tables.get("seibro_release", pd.DataFrame()) if isinstance(bundle.raw_tables, dict) else pd.DataFrame()
+        render_unlock_page(issues, bundle.all_unlocks, today, seibro_releases=seibro_releases)
     elif page == "실험실":
         assert bundle is not None
         render_lab_page(bundle, issues, today, backtest_version, prefer_live, unified_bundle, resolved_unified_workspace_path, allow_packaged_sample, source_mode)

@@ -5,7 +5,7 @@ from typing import Any
 
 import pandas as pd
 
-from src.services.ipo_scrapers import find_local_kind_export
+from src.services.ipo_scrapers import find_local_kind_export, standardize_38_seed_table
 from src.utils import (
     clean_issue_frame,
     data_dir,
@@ -79,9 +79,11 @@ class IPORepository:
             self.base_dir / "uploads" / "kind_latest.csv",
             self.base_dir.parent / "kind_latest.xlsx",
             self.base_dir.parent / "kind_latest.csv",
+            self.base_dir.parent / "integrated_lab" / "ipo_lockup_unified_lab" / "workspace" / "dataset_out" / "combined_master.csv",
             self.base_dir.parent / "integrated_lab" / "ipo_lockup_unified_lab" / "workspace" / "dataset_out" / "kind_ipo_master.csv",
             self.base_dir.parent / "integrated_lab" / "ipo_lockup_unified_lab" / "workspace" / "dataset_out" / "live_issue_seed.csv",
             self.base_dir.parent / "integrated_lab" / "ipo_lockup_unified_lab" / "kind_master.csv",
+            self.base_dir.parent / "ipo_lockup_unified_lab" / "workspace" / "dataset_out" / "combined_master.csv",
             self.base_dir.parent / "ipo_lockup_unified_lab" / "workspace" / "dataset_out" / "kind_ipo_master.csv",
             self.base_dir.parent / "ipo_lockup_unified_lab" / "workspace" / "dataset_out" / "live_issue_seed.csv",
             self.base_dir.parent / "ipo_lockup_unified_lab" / "kind_master.csv",
@@ -99,6 +101,25 @@ class IPORepository:
             self.base_dir.parent / "dart_enriched_latest.csv",
         ]
         return detect_existing_file(candidates)
+
+    def auto_detect_38_seed_export(self) -> Path | None:
+        candidates = [
+            self.base_dir.parent / "integrated_lab" / "ipo_lockup_unified_lab" / "workspace" / "dataset_out" / "ipo_master_38.csv",
+            self.base_dir.parent / "integrated_lab" / "ipo_lockup_unified_lab" / "workspace" / "cache_kis" / "ipo" / "ipo_master_38_1_30.csv",
+            self.base_dir.parent / "ipo_lockup_unified_lab" / "workspace" / "dataset_out" / "ipo_master_38.csv",
+            self.base_dir.parent / "ipo_lockup_unified_lab" / "workspace" / "cache_kis" / "ipo" / "ipo_master_38_1_30.csv",
+        ]
+        return detect_existing_file(candidates)
+
+    def load_38_seed_export(self, dataset_path: str | Path | None = None) -> pd.DataFrame:
+        if dataset_path:
+            path = Path(dataset_path).expanduser().resolve()
+        else:
+            path = self.auto_detect_38_seed_export()
+        if path is None or not path.exists():
+            return pd.DataFrame()
+        df = pd.read_csv(path)
+        return standardize_38_seed_table(df)
 
     def load_dart_enriched_export(self, dataset_path: str | Path | None = None) -> pd.DataFrame:
         if dataset_path:

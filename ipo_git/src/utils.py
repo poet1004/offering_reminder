@@ -14,6 +14,8 @@ DEFAULT_DATE_COLUMNS = [
     "subscription_start",
     "subscription_end",
     "listing_date",
+    "forecast_date",
+    "ir_date",
     "unlock_date",
     "unlock_date_15d",
     "unlock_date_1m",
@@ -63,7 +65,12 @@ STANDARD_ISSUE_COLUMNS = [
     "ma20",
     "ma60",
     "rsi14",
+    "forecast_date",
     "ir_url",
+    "ir_title",
+    "ir_date",
+    "ir_pdf_url",
+    "ir_source_page",
     "dart_receipt_no",
     "dart_viewer_url",
     "dart_report_nm",
@@ -201,6 +208,8 @@ def clean_issue_frame(df: pd.DataFrame) -> pd.DataFrame:
         "market",
         "sector",
         "lockup_commitment_ratio",
+        "forecast_date",
+        "ir_pdf_url",
         "total_offer_shares",
         "post_listing_total_shares",
     ]
@@ -484,9 +493,17 @@ def safe_bool(value: Any, default: bool = False) -> bool:
 def normalize_symbol_text(value: Any, *, zfill: bool = True) -> str | None:
     if is_missing(value):
         return None
-    text = str(value).strip()
+    text = str(value).strip().upper()
     if not text:
         return None
+    if re.fullmatch(r"\d+\.0", text):
+        text = text[:-2]
+    compact = re.sub(r"[^0-9A-Z]", "", text)
+    if re.fullmatch(r"[0-9A-Z]{6}", compact):
+        return compact
+    match = re.search(r"\b([0-9A-Z]{6})\b", text)
+    if match:
+        return match.group(1).upper()
     match = re.search(r"\b(\d{1,6})\b", text)
     if not match:
         return None

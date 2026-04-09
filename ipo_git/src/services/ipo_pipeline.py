@@ -14,7 +14,15 @@ from src.services.ipo_scrapers import (
     KIND_PUBLIC_OFFER_URL,
     KIND_PUB_PRICE_URL,
     THIRTYEIGHT_SCHEDULE_URL,
+    THIRTYEIGHT_DEMAND_RESULT_URL,
+    THIRTYEIGHT_NEW_LISTING_URL,
+    THIRTYEIGHT_IR_DATA_URL,
+    SEIBRO_RELEASE_URL,
     fetch_38_schedule,
+    fetch_38_demand_results,
+    fetch_38_new_listing_table,
+    fetch_38_ir_links,
+    fetch_seibro_release_schedule,
     fetch_kind_corp_download_table,
     fetch_kind_listing_table,
     fetch_kind_public_offering_table,
@@ -22,6 +30,7 @@ from src.services.ipo_scrapers import (
     load_kind_export_from_path,
     merge_live_sources,
     standardize_38_schedule_table,
+    standardize_38_new_listing_table,
     standardize_kind_listing_table,
     standardize_kind_public_offering_table,
     standardize_kind_pubprice_table,
@@ -63,6 +72,10 @@ class IPODataHub:
             "kind_pubprice": None,
             "kind_corp_download": None,
             "38": None,
+            "38_demand": None,
+            "38_new_listing": None,
+            "38_ir": None,
+            "seibro_release": None,
             "errors": [],
         }
         now = today_kst()
@@ -122,6 +135,46 @@ class IPODataHub:
                 report["38"] = {"rows": int(len(std_38)), "url": THIRTYEIGHT_SCHEDULE_URL}
             except Exception as exc:
                 report["errors"].append(f"38 refresh failed: {exc}")
+            try:
+                demand_38 = fetch_38_demand_results()
+                self.cache.write_frame(
+                    "schedule_38_demand_live",
+                    demand_38,
+                    meta={"source": "38", "notes": THIRTYEIGHT_DEMAND_RESULT_URL, "row_count": int(len(demand_38)), "saved_at": now.isoformat()},
+                )
+                report["38_demand"] = {"rows": int(len(demand_38)), "url": THIRTYEIGHT_DEMAND_RESULT_URL}
+            except Exception as exc:
+                report["errors"].append(f"38 demand-result refresh failed: {exc}")
+            try:
+                new_listing_38 = standardize_38_new_listing_table(fetch_38_new_listing_table())
+                self.cache.write_frame(
+                    "schedule_38_new_listing_live",
+                    new_listing_38,
+                    meta={"source": "38", "notes": THIRTYEIGHT_NEW_LISTING_URL, "row_count": int(len(new_listing_38)), "saved_at": now.isoformat()},
+                )
+                report["38_new_listing"] = {"rows": int(len(new_listing_38)), "url": THIRTYEIGHT_NEW_LISTING_URL}
+            except Exception as exc:
+                report["errors"].append(f"38 new-listing refresh failed: {exc}")
+            try:
+                ir_38 = fetch_38_ir_links()
+                self.cache.write_frame(
+                    "ir_38_live",
+                    ir_38,
+                    meta={"source": "38", "notes": THIRTYEIGHT_IR_DATA_URL, "row_count": int(len(ir_38)), "saved_at": now.isoformat()},
+                )
+                report["38_ir"] = {"rows": int(len(ir_38)), "url": THIRTYEIGHT_IR_DATA_URL}
+            except Exception as exc:
+                report["errors"].append(f"38 IR refresh failed: {exc}")
+            try:
+                seibro_release = fetch_seibro_release_schedule()
+                self.cache.write_frame(
+                    "seibro_release_live",
+                    seibro_release,
+                    meta={"source": "Seibro", "notes": SEIBRO_RELEASE_URL, "row_count": int(len(seibro_release)), "saved_at": now.isoformat()},
+                )
+                report["seibro_release"] = {"rows": int(len(seibro_release)), "url": SEIBRO_RELEASE_URL}
+            except Exception as exc:
+                report["errors"].append(f"Seibro release refresh failed: {exc}")
         return report
 
     def load_bundle(
@@ -154,8 +207,13 @@ class IPODataHub:
         live_kind_public = pd.DataFrame(columns=STANDARD_ISSUE_COLUMNS)
         live_kind_pubprice = pd.DataFrame(columns=STANDARD_ISSUE_COLUMNS)
         live_38 = pd.DataFrame(columns=STANDARD_ISSUE_COLUMNS)
+        live_38_demand = pd.DataFrame(columns=STANDARD_ISSUE_COLUMNS)
+        live_38_new_listing = pd.DataFrame(columns=STANDARD_ISSUE_COLUMNS)
+        live_38_ir = pd.DataFrame(columns=STANDARD_ISSUE_COLUMNS)
+        live_seibro = pd.DataFrame()
         live_kind_corp = pd.DataFrame(columns=STANDARD_ISSUE_COLUMNS)
         local_kind = pd.DataFrame(columns=STANDARD_ISSUE_COLUMNS)
+        seed_38 = pd.DataFrame(columns=STANDARD_ISSUE_COLUMNS)
         dart_enriched = pd.DataFrame(columns=STANDARD_ISSUE_COLUMNS)
         source_rows: list[dict[str, Any]] = []
 
@@ -167,6 +225,14 @@ class IPODataHub:
                     source_rows.append({"source": "local-kind", "ok": True, "rows": int(len(local_kind)), "detail": str(local_kind_export_path)})
             except Exception as exc:
                 source_rows.append({"source": "local-kind", "ok": False, "rows": 0, "detail": str(exc)})
+
+        try:
+            seed_38 = clean_issue_frame(self.repo.load_38_seed_export())
+            if not seed_38.empty:
+                raw_tables["seed_38"] = seed_38
+                source_rows.append({"source": "38-seed", "ok": True, "rows": int(len(seed_38)), "detail": str(self.repo.auto_detect_38_seed_export() or "")})
+        except Exception as exc:
+            source_rows.append({"source": "38-seed", "ok": False, "rows": 0, "detail": str(exc)})
 
         try:
             dart_enriched = clean_issue_frame(self.repo.load_dart_enriched_export())
@@ -182,6 +248,10 @@ class IPODataHub:
                 ("kind_public_offering_live", "KIND-cache-public"),
                 ("kind_pubprice_live", "KIND-cache-pubprice"),
                 ("schedule_38_live", "38-cache"),
+("schedule_38_demand_live", "38-demand-cache"),
+                ("schedule_38_new_listing_live", "38-new-listing-cache"),
+                ("ir_38_live", "38-ir-cache"),
+                ("seibro_release_live", "Seibro-cache"),
                 ("kind_corp_download_live", "KIND-cache-corpdownload"),
             ]
             for cache_name, source_name in cache_specs:
@@ -199,6 +269,14 @@ class IPODataHub:
                     live_kind_pubprice = clean_issue_frame(cached)
                 elif cache_name == "schedule_38_live":
                     live_38 = clean_issue_frame(cached)
+                elif cache_name == "schedule_38_demand_live":
+                    live_38_demand = clean_issue_frame(cached)
+                elif cache_name == "schedule_38_new_listing_live":
+                    live_38_new_listing = clean_issue_frame(cached)
+                elif cache_name == "ir_38_live":
+                    live_38_ir = clean_issue_frame(cached)
+                elif cache_name == "seibro_release_live":
+                    live_seibro = parse_date_columns(cached.copy())
                 elif cache_name == "kind_corp_download_live":
                     live_kind_corp = clean_issue_frame(cached)
 
@@ -248,6 +326,50 @@ class IPODataHub:
             except Exception as exc:
                 source_rows.append({"source": "38-live", "ok": False, "rows": 0, "detail": str(exc)})
             try:
+                live_38_demand = clean_issue_frame(fetch_38_demand_results())
+                raw_tables["live_38_demand"] = live_38_demand
+                self.cache.write_frame(
+                    "schedule_38_demand_live",
+                    live_38_demand,
+                    meta={"source": "38", "notes": THIRTYEIGHT_DEMAND_RESULT_URL, "row_count": int(len(live_38_demand))},
+                )
+                source_rows.append({"source": "38-live-demand", "ok": True, "rows": int(len(live_38_demand)), "detail": THIRTYEIGHT_DEMAND_RESULT_URL})
+            except Exception as exc:
+                source_rows.append({"source": "38-live-demand", "ok": False, "rows": 0, "detail": str(exc)})
+            try:
+                live_38_new_listing = clean_issue_frame(standardize_38_new_listing_table(fetch_38_new_listing_table()))
+                raw_tables["live_38_new_listing"] = live_38_new_listing
+                self.cache.write_frame(
+                    "schedule_38_new_listing_live",
+                    live_38_new_listing,
+                    meta={"source": "38", "notes": THIRTYEIGHT_NEW_LISTING_URL, "row_count": int(len(live_38_new_listing))},
+                )
+                source_rows.append({"source": "38-live-new-listing", "ok": True, "rows": int(len(live_38_new_listing)), "detail": THIRTYEIGHT_NEW_LISTING_URL})
+            except Exception as exc:
+                source_rows.append({"source": "38-live-new-listing", "ok": False, "rows": 0, "detail": str(exc)})
+            try:
+                live_38_ir = clean_issue_frame(fetch_38_ir_links())
+                raw_tables["live_38_ir"] = live_38_ir
+                self.cache.write_frame(
+                    "ir_38_live",
+                    live_38_ir,
+                    meta={"source": "38", "notes": THIRTYEIGHT_IR_DATA_URL, "row_count": int(len(live_38_ir))},
+                )
+                source_rows.append({"source": "38-live-ir", "ok": True, "rows": int(len(live_38_ir)), "detail": THIRTYEIGHT_IR_DATA_URL})
+            except Exception as exc:
+                source_rows.append({"source": "38-live-ir", "ok": False, "rows": 0, "detail": str(exc)})
+            try:
+                live_seibro = fetch_seibro_release_schedule()
+                raw_tables["seibro_release"] = live_seibro
+                self.cache.write_frame(
+                    "seibro_release_live",
+                    live_seibro,
+                    meta={"source": "Seibro", "notes": SEIBRO_RELEASE_URL, "row_count": int(len(live_seibro))},
+                )
+                source_rows.append({"source": "Seibro-live-release", "ok": True, "rows": int(len(live_seibro)), "detail": SEIBRO_RELEASE_URL})
+            except Exception as exc:
+                source_rows.append({"source": "Seibro-live-release", "ok": False, "rows": 0, "detail": str(exc)})
+            try:
                 live_kind_corp = clean_issue_frame(fetch_kind_corp_download_table())
                 raw_tables["live_kind_corp"] = live_kind_corp
                 self.cache.write_frame(
@@ -266,6 +388,16 @@ class IPODataHub:
             kind_pubprice_df=live_kind_pubprice,
             kind_corp_df=live_kind_corp,
         )
+        if not seed_38.empty:
+            live_merged = self._overlay_issues(live_merged, seed_38) if not live_merged.empty else seed_38.copy()
+        if not live_38_new_listing.empty:
+            live_merged = self._overlay_issues(live_merged, live_38_new_listing) if not live_merged.empty else live_38_new_listing.copy()
+        if not live_38_demand.empty:
+            live_merged = self._overlay_issues(live_merged, live_38_demand) if not live_merged.empty else live_38_demand.copy()
+        if not live_38_ir.empty and not live_merged.empty:
+            live_merged = self._overlay_issues(live_merged, live_38_ir)
+        if not live_seibro.empty:
+            raw_tables.setdefault("seibro_release", live_seibro)
         if not local_kind.empty:
             live_merged = self._overlay_issues(live_merged, local_kind) if not live_merged.empty else local_kind
 
@@ -277,6 +409,15 @@ class IPODataHub:
             issues = sample.copy()
         else:
             issues = pd.DataFrame(columns=STANDARD_ISSUE_COLUMNS)
+
+        if not seed_38.empty and not issues.empty:
+            issues = self._overlay_issues(issues, seed_38)
+        if not live_38_new_listing.empty and not issues.empty:
+            issues = self._overlay_issues(issues, live_38_new_listing)
+        if not live_38_demand.empty and not issues.empty:
+            issues = self._overlay_issues(issues, live_38_demand)
+        if not live_38_ir.empty and not issues.empty:
+            issues = self._overlay_issues(issues, live_38_ir)
 
         strategy_overlay = self._issue_overlay_from_external_unlocks(external_unlocks)
         if not strategy_overlay.empty:

@@ -35,13 +35,17 @@ USER_AGENT = (
 )
 
 KIND_LISTING_URL = "https://kind.krx.co.kr/listinvstg/listingcompany.do?method=searchListingTypeMain"
-KIND_PUBLIC_OFFER_URL = "https://kind.krx.co.kr/listinvstg/pubofrprogcom.do?method=searchPubofrProgComMain"
+KIND_PUBLIC_OFFER_URL = "https://kind.krx.co.kr/listinvstg/pubofrschdl.do?method=searchPubofrScholMain"
 KIND_IR_ROOM_URL = "https://kind.krx.co.kr/corpgeneral/irschedule.do?gubun=iRMaterials&method=searchIRScheduleMain"
 KIND_PUB_PRICE_URL = "https://kind.krx.co.kr/listinvstg/pubprcCmpStkprcByIssue.do?method=pubprcCmpStkprcByIssueMain"
 THIRTYEIGHT_SCHEDULE_URL = "https://www.38.co.kr/html/fund/?o=k"
 THIRTYEIGHT_MOBILE_SCHEDULE_URL = "https://m.38.co.kr/ipo/fund.php"
 THIRTYEIGHT_BASE_URL = "https://www.38.co.kr/"
 THIRTYEIGHT_MOBILE_BASE_URL = "https://m.38.co.kr/"
+THIRTYEIGHT_DEMAND_RESULT_URL = "https://www.38.co.kr/html/fund/?o=r1"
+THIRTYEIGHT_NEW_LISTING_URL = "https://www.38.co.kr/html/fund/?o=nw"
+THIRTYEIGHT_IR_DATA_URL = "https://www.38.co.kr/html/ipo/ir_data.php"
+SEIBRO_RELEASE_URL = "https://m.seibro.or.kr/cnts/company/selectRelease.do"
 KIND_CORP_DOWNLOAD_URLS = [
     "https://kind.krx.co.kr/corpgeneral/corpList.do?method=download&searchType=13",
     "https://kind.krx.co.kr/corpgeneral/corpList.do?method=download",
@@ -564,7 +568,7 @@ def _extract_38_mobile_detail_links(html: str) -> pd.DataFrame:
 
 def fetch_kind_listing_table(timeout: int = 15) -> pd.DataFrame:
     response = _http_get(KIND_LISTING_URL, timeout=timeout)
-    table = _read_best_table(response.text, ["회사명", "상장일", "주관사"])
+    table = _read_best_table(response.text, ["회사명", "상장일", "신규상장", "상장"])
     if table.empty:
         return pd.DataFrame()
     rename_map = {}
@@ -587,7 +591,7 @@ def fetch_kind_listing_table(timeout: int = 15) -> pd.DataFrame:
 
 def fetch_kind_public_offering_table(timeout: int = 15) -> pd.DataFrame:
     response = _http_get(KIND_PUBLIC_OFFER_URL, timeout=timeout)
-    table = _read_best_table(response.text, ["회사명", "청약일정", "상장예정일"])
+    table = _read_best_table(response.text, ["회사명", "청약", "수요예측", "IR", "상장"])
     if table.empty:
         return pd.DataFrame()
     rename_map = {}
@@ -616,7 +620,7 @@ def fetch_kind_public_offering_table(timeout: int = 15) -> pd.DataFrame:
 
 def fetch_kind_pubprice_table(timeout: int = 15) -> pd.DataFrame:
     response = _http_get(KIND_PUB_PRICE_URL, timeout=timeout)
-    table = _read_best_table(response.text, ["회사명", "상장일", "공모가", "종가"])
+    table = _read_best_table(response.text, ["회사명", "공모가", "종가", "상장일"])
     if table.empty:
         return pd.DataFrame()
     return table
@@ -673,12 +677,465 @@ def fetch_38_schedule(timeout: int = 15, include_detail_links: bool = True) -> p
     raise RuntimeError("38 schedule fetch failed; " + " | ".join(errors[:6]))
 
 
+
+
+def fetch_38_new_listing_table(timeout: int = 15, max_pages: int = 4) -> pd.DataFrame:
+    errors: list[str] = []
+    frames: list[pd.DataFrame] = []
+    for page in range(1, max_pages + 1):
+        url = THIRTYEIGHT_NEW_LISTING_URL if page == 1 else f"{THIRTYEIGHT_NEW_LISTING_URL}&page={page}"
+        try:
+            response = _http_get(url, timeout=timeout)
+            table = _read_best_table(response.text, ["기업명", "신규상장일", "현재가", "공모가"])
+            if table.empty:
+                errors.append(f"{url}: parsed table empty")
+                continue
+            rename_map = {}
+            for col in table.columns:
+                col_str = str(col)
+                if "기업명" in col_str or "종목명" in col_str or "회사명" in col_str:
+                    rename_map[col] = "기업명"
+                elif "신규상장일" in col_str or "상장일" in col_str:
+                    rename_map[col] = "신규상장일"
+                elif ("현재가" in col_str or "종가" in col_str) and "전일" not in col_str:
+                    rename_map[col] = "현재가"
+                elif "전일비" in col_str or "등락률" in col_str:
+                    rename_map[col] = "전일비"
+                elif "공모가" in col_str:
+                    rename_map[col] = "공모가"
+            out = table.rename(columns=rename_map)
+            if not out.empty:
+                out["_page"] = page
+                frames.append(out)
+        except Exception as exc:
+            errors.append(f"{url}: {exc}")
+    if not frames:
+        raise RuntimeError("38 new-listing fetch failed; " + " | ".join(errors[:6]))
+    merged = pd.concat(frames, ignore_index=True)
+    if "기업명" in merged.columns:
+        merged["name_key"] = merged["기업명"].map(normalize_name_key)
+        merged = merged.sort_values([c for c in ["신규상장일", "name_key", "_page"] if c in merged.columns], na_position="last")
+        merged = merged.drop_duplicates(subset=["name_key"], keep="last").drop(columns=["name_key", "_page"], errors="ignore")
+    return merged.reset_index(drop=True)
+
+
+def standardize_38_new_listing_table(df: pd.DataFrame, *, today: pd.Timestamp | None = None) -> pd.DataFrame:
+    if df is None or df.empty:
+        return pd.DataFrame(columns=STANDARD_ISSUE_COLUMNS)
+    today = today or today_kst()
+    work = _normalize_columns(df)
+
+    name_col = pick_first_present(work, ["기업명", "종목명", "회사명"])
+    listing_col = pick_first_present(work, ["신규상장일", "상장일"])
+    price_col = pick_first_present(work, ["현재가", "최근거래일 종가", "종가"])
+    offer_col = pick_first_present(work, ["공모가", "확정공모가"])
+    change_col = pick_first_present(work, ["전일비", "등락률", "전일비(%),", "전일비(%)"])
+
+    rows: list[dict[str, Any]] = []
+    for _, record in work.iterrows():
+        name = record.get(name_col or "")
+        if pd.isna(name) or str(name).strip() == "":
+            continue
+        listing_date = parse_date_text(_scalarize_cell(record.get(listing_col or "")), default_year=today.year) if listing_col else None
+        row = build_blank_issue_row()
+        row.update({
+            "ipo_id": f"38_NW_{normalize_name_key(name)}",
+            "name": str(name).strip(),
+            "name_key": normalize_name_key(name),
+            "stage": infer_issue_stage(None, None, listing_date, today=today, fallback="상장후"),
+            "listing_date": listing_date,
+            "offer_price": _normalize_price_text(record.get(offer_col or "")),
+            "current_price": _normalize_price_text(record.get(price_col or "")),
+            "day_change_pct": _normalize_ratio_text(record.get(change_col or "")),
+            "source": "38",
+            "source_detail": "new-listing-table",
+            "last_refresh_ts": today,
+        })
+        rows.append(row)
+    return standardize_issue_frame(pd.DataFrame(rows))
+
+
+def standardize_38_seed_table(df: pd.DataFrame, *, today: pd.Timestamp | None = None) -> pd.DataFrame:
+    if df is None or df.empty:
+        return pd.DataFrame(columns=STANDARD_ISSUE_COLUMNS)
+    today = today or today_kst()
+    work = _normalize_columns(df)
+    name_col = pick_first_present(work, ["name", "기업명", "종목명", "회사명"])
+    key_col = pick_first_present(work, ["name_key", "기업명key", "종목key"])
+    listing_col = pick_first_present(work, ["listing_date", "신규상장일", "상장일"])
+    offer_col = pick_first_present(work, ["ipo_price", "공모가", "확정공모가"])
+    kinds_col = pick_first_present(work, ["source_kinds", "sourcekind", "kind"])
+
+    rows: list[dict[str, Any]] = []
+    for _, record in work.iterrows():
+        name = record.get(name_col or "")
+        if pd.isna(name) or str(name).strip() == "":
+            continue
+        name_key = normalize_name_key(record.get(key_col or "") or name)
+        listing_date = parse_date_text(record.get(listing_col or ""), default_year=today.year) if listing_col else None
+        source_kinds = str(record.get(kinds_col or "") or "").strip()
+        fallback_stage = "청약예정" if "subscription" in source_kinds and listing_date is None else "상장예정"
+        row = build_blank_issue_row()
+        row.update({
+            "ipo_id": f"38_SEED_{name_key}",
+            "name": str(name).strip(),
+            "name_key": name_key,
+            "stage": infer_issue_stage(None, None, listing_date, today=today, fallback=fallback_stage),
+            "listing_date": listing_date,
+            "offer_price": _normalize_price_text(record.get(offer_col or "")),
+            "source": "38-seed",
+            "source_detail": f"ipo-master-38:{source_kinds or 'seed'}",
+            "last_refresh_ts": today,
+        })
+        rows.append(row)
+    return standardize_issue_frame(pd.DataFrame(rows))
+
+
 def build_blank_issue_row() -> dict[str, Any]:
     row = {col: pd.NA for col in STANDARD_ISSUE_COLUMNS}
     row["source"] = pd.NA
     return row
 
 
+
+
+def _candidate_38_demand_result_urls(page: int) -> list[str]:
+    candidates = []
+    if page <= 1:
+        candidates.extend([
+            THIRTYEIGHT_DEMAND_RESULT_URL,
+            "https://www.38.co.kr/html/fund/index.htm?o=r1",
+            "https://forum.38.co.kr/html/fund/index.htm?l=&o=r1",
+        ])
+    else:
+        candidates.extend([
+            f"{THIRTYEIGHT_DEMAND_RESULT_URL}&page={page}",
+            f"https://www.38.co.kr/html/fund/index.htm?o=r1&page={page}",
+            f"https://forum.38.co.kr/html/fund/index.htm?l=&o=r1&page={page}",
+        ])
+    seen: set[str] = set()
+    out: list[str] = []
+    for url in candidates:
+        if url not in seen:
+            seen.add(url)
+            out.append(url)
+    return out
+
+
+def _candidate_38_ir_urls(page: int) -> list[str]:
+    candidates = []
+    if page <= 1:
+        candidates.extend([
+            THIRTYEIGHT_IR_DATA_URL,
+            f"{THIRTYEIGHT_IR_DATA_URL}?Array=&page=1&s%5Bsc_string%5D=",
+            f"{THIRTYEIGHT_IR_DATA_URL}?page=1",
+        ])
+    else:
+        candidates.extend([
+            f"{THIRTYEIGHT_IR_DATA_URL}?Array=&page={page}&s%5Bsc_string%5D=",
+            f"{THIRTYEIGHT_IR_DATA_URL}?page={page}",
+        ])
+    seen: set[str] = set()
+    out: list[str] = []
+    for url in candidates:
+        if url not in seen:
+            seen.add(url)
+            out.append(url)
+    return out
+
+
+def _extract_row_cell_texts(tr: Any) -> list[str]:
+    texts: list[str] = []
+    for cell in tr.xpath('./th|./td'):
+        text = _clean_text_value(" ".join(t.strip() for t in cell.xpath('.//text()') if str(t).strip()))
+        if text:
+            texts.append(text)
+    return texts
+
+
+def _pick_company_name_from_texts(texts: Sequence[str]) -> str | None:
+    skip_tokens = ["IR자료", "PDF", "다운", "보기", "38커뮤니케이션", "등록일", "번호"]
+    for text in texts:
+        cleaned = _clean_text_value(text) or ""
+        if not cleaned:
+            continue
+        if re.fullmatch(r"[0-9]+", cleaned):
+            continue
+        if any(token.lower() in cleaned.lower() for token in skip_tokens):
+            continue
+        if parse_date_text(cleaned) is not None:
+            continue
+        if _is_probable_schedule_name(cleaned):
+            return cleaned
+    return None
+
+
+def parse_38_demand_result_html(html: str, *, url: str = "", today: pd.Timestamp | None = None) -> pd.DataFrame:
+    today = today or today_kst()
+    table = _read_best_table(html, ["기업명", "예측일", "공모희망가", "공모가", "기관 경쟁률", "의무보유 확약", "주간사"])
+    if table.empty:
+        return pd.DataFrame(columns=STANDARD_ISSUE_COLUMNS)
+    work = _normalize_columns(table)
+    name_col = pick_first_present(work, ["기업명", "종목명", "회사명"])
+    forecast_col = pick_first_present(work, ["예측일", "수요예측일", "기관수요예측일"])
+    offer_col = pick_first_present(work, ["공모가", "확정공모가"])
+    band_col = pick_first_present(work, ["공모희망가", "희망공모가", "희망가", "공모가"])
+    broker_col = pick_first_present(work, ["주간사", "주관사"])
+    inst_col = next((col for col in work.columns if "기관" in str(col) and "경쟁" in str(col)), None)
+    if inst_col is None:
+        inst_col = pick_first_present(work, ["기관 경쟁률", "기관경쟁률", "수요예측경쟁률"])
+    lock_col = next((col for col in work.columns if ("의무보유" in str(col)) or ("확약" in str(col))), None)
+    if lock_col is None:
+        lock_col = pick_first_present(work, ["의무보유 확약", "의무보유확약", "확약"])
+    rows: list[dict[str, Any]] = []
+    for _, record in work.iterrows():
+        name = record.get(name_col or "")
+        if not _is_probable_schedule_name(name):
+            continue
+        band_low, band_high = _normalize_band_pair(record.get(band_col or ""))
+        offer_price = _normalize_price_text(record.get(offer_col or ""))
+        inst_ratio = _normalize_ratio_text(record.get(inst_col or ""))
+        lock_ratio = _normalize_ratio_text(record.get(lock_col or ""))
+        forecast_date = parse_date_text(_scalarize_cell(record.get(forecast_col or "")), default_year=today.year) if forecast_col else None
+        has_signal = any(value is not None and not pd.isna(value) for value in [forecast_date, band_low, band_high, offer_price, inst_ratio, lock_ratio])
+        if not has_signal:
+            continue
+        row = build_blank_issue_row()
+        row.update({
+            "ipo_id": f"38_result_{normalize_name_key(name)}",
+            "name": str(name).strip(),
+            "name_key": normalize_name_key(name),
+            "underwriters": _clean_underwriter_value(_scalarize_cell(record.get(broker_col or ""))),
+            "forecast_date": forecast_date,
+            "price_band_low": band_low,
+            "price_band_high": band_high,
+            "offer_price": offer_price,
+            "institutional_competition_ratio": inst_ratio,
+            "lockup_commitment_ratio": lock_ratio,
+            "source": "38",
+            "source_detail": f"38-demand:{url}" if url else "38-demand",
+            "last_refresh_ts": today,
+        })
+        rows.append(row)
+    out = pd.DataFrame(rows)
+    if out.empty:
+        return pd.DataFrame(columns=STANDARD_ISSUE_COLUMNS)
+    return clean_issue_frame(out)
+
+
+def fetch_38_demand_results(timeout: int = 15, max_pages: int = 6) -> pd.DataFrame:
+    errors: list[str] = []
+    frames: list[pd.DataFrame] = []
+    empty_streak = 0
+    for page in range(1, max_pages + 1):
+        page_frame = pd.DataFrame()
+        for url in _candidate_38_demand_result_urls(page):
+            try:
+                response = _http_get(url, timeout=timeout)
+                page_frame = parse_38_demand_result_html(response.text, url=url)
+                if not page_frame.empty:
+                    break
+            except Exception as exc:
+                errors.append(f"{url}: {exc}")
+        if page_frame.empty:
+            empty_streak += 1
+            if page >= 2 and empty_streak >= 2:
+                break
+            continue
+        empty_streak = 0
+        page_frame = page_frame.copy()
+        page_frame["_page"] = page
+        frames.append(page_frame)
+    if not frames:
+        if errors:
+            raise RuntimeError("38 demand result fetch failed; " + " | ".join(errors[:6]))
+        return pd.DataFrame(columns=STANDARD_ISSUE_COLUMNS)
+    out = pd.concat(frames, ignore_index=True)
+    out = out.sort_values([c for c in ["forecast_date", "_page", "name_key"] if c in out.columns], ascending=[False, True, True], na_position="last")
+    if "name_key" in out.columns:
+        out = out.drop_duplicates(subset=["name_key"], keep="first")
+    return clean_issue_frame(out.drop(columns=["_page"], errors="ignore")).reset_index(drop=True)
+
+
+def parse_38_ir_html(html: str, *, url: str = "", today: pd.Timestamp | None = None) -> pd.DataFrame:
+    today = today or today_kst()
+    try:
+        root = lxml_html.fromstring(html)
+    except Exception:
+        return pd.DataFrame(columns=STANDARD_ISSUE_COLUMNS)
+    rows: list[dict[str, Any]] = []
+    for tr in root.xpath('//tr'):
+        texts = _extract_row_cell_texts(tr)
+        if not texts:
+            continue
+        anchors = []
+        for a in tr.xpath('.//a[@href]'):
+            href = str(a.get('href') or '').strip()
+            if not href:
+                continue
+            full_url = urljoin(url or THIRTYEIGHT_BASE_URL, href)
+            anchor_text = _clean_text_value(" ".join(t.strip() for t in a.xpath('.//text()') if str(t).strip())) or ""
+            anchors.append((full_url, anchor_text))
+        if not anchors:
+            continue
+        pdf_url = None
+        for href, anchor_text in anchors:
+            lowered = href.lower()
+            if re.search(r'\.pdf(?:$|[?#])', lowered) or 'pdf' in anchor_text.lower() or 'download' in lowered or '/down' in lowered or '/file/' in lowered:
+                pdf_url = href
+                break
+        if not pdf_url:
+            continue
+        company = _pick_company_name_from_texts(texts)
+        if not company:
+            continue
+        date_value = None
+        for text in texts:
+            date_value = parse_date_text(text, default_year=today.year)
+            if date_value is not None:
+                break
+        title_candidates: list[str] = []
+        for text in texts:
+            cleaned = _clean_text_value(text) or ""
+            if not cleaned or cleaned == company:
+                continue
+            if parse_date_text(cleaned, default_year=today.year) is not None:
+                continue
+            if cleaned.lower() in {"pdf", "다운로드", "보기"}:
+                continue
+            if any(token in cleaned for token in ["38커뮤니케이션", "IPO IR자료"]):
+                continue
+            title_candidates.append(cleaned)
+        title = max(title_candidates, key=len) if title_candidates else f"{company} IR자료"
+        row = build_blank_issue_row()
+        row.update({
+            "ipo_id": f"38_ir_{normalize_name_key(company)}",
+            "name": company,
+            "name_key": normalize_name_key(company),
+            "ir_title": title,
+            "ir_date": date_value,
+            "ir_pdf_url": pdf_url,
+            "ir_source_page": url or THIRTYEIGHT_IR_DATA_URL,
+            "source": "38",
+            "source_detail": f"38-ir:{url}" if url else "38-ir",
+            "last_refresh_ts": today,
+        })
+        rows.append(row)
+    if not rows:
+        return pd.DataFrame(columns=STANDARD_ISSUE_COLUMNS)
+    out = pd.DataFrame(rows)
+    out = out.sort_values([c for c in ["ir_date", "name_key"] if c in out.columns], ascending=[False, True], na_position="last")
+    out = out.drop_duplicates(subset=["name_key"], keep="first")
+    return clean_issue_frame(out).reset_index(drop=True)
+
+
+def fetch_38_ir_links(timeout: int = 15, max_pages: int = 8) -> pd.DataFrame:
+    errors: list[str] = []
+    frames: list[pd.DataFrame] = []
+    empty_streak = 0
+    for page in range(1, max_pages + 1):
+        page_frame = pd.DataFrame()
+        for url in _candidate_38_ir_urls(page):
+            try:
+                response = _http_get(url, timeout=timeout)
+                page_frame = parse_38_ir_html(response.text, url=url)
+                if not page_frame.empty:
+                    break
+            except Exception as exc:
+                errors.append(f"{url}: {exc}")
+        if page_frame.empty:
+            empty_streak += 1
+            if page >= 2 and empty_streak >= 2:
+                break
+            continue
+        empty_streak = 0
+        page_frame = page_frame.copy()
+        page_frame["_page"] = page
+        frames.append(page_frame)
+    if not frames:
+        if errors:
+            raise RuntimeError("38 IR fetch failed; " + " | ".join(errors[:6]))
+        return pd.DataFrame(columns=STANDARD_ISSUE_COLUMNS)
+    out = pd.concat(frames, ignore_index=True)
+    out = out.sort_values([c for c in ["ir_date", "_page", "name_key"] if c in out.columns], ascending=[False, True, True], na_position="last")
+    out = out.drop_duplicates(subset=["name_key"], keep="first")
+    return clean_issue_frame(out.drop(columns=["_page"], errors="ignore")).reset_index(drop=True)
+
+
+def parse_seibro_release_html(html: str, *, url: str = "", today: pd.Timestamp | None = None) -> pd.DataFrame:
+    today = today or today_kst()
+    table = _read_best_table(html, ["해제일", "기업명", "해제주식수", "예수잔량", "시장구분"])
+    work = _normalize_columns(table) if not table.empty else pd.DataFrame()
+    rows: list[dict[str, Any]] = []
+    if not work.empty:
+        date_col = pick_first_present(work, ["해제일"])
+        name_col = pick_first_present(work, ["기업명", "회사명", "종목명"])
+        shares_col = next((col for col in work.columns if "해제주식수" in str(col)), None) or pick_first_present(work, ["해제주식수"])
+        remain_col = next((col for col in work.columns if "예수잔량" in str(col)), None) or pick_first_present(work, ["예수잔량"])
+        market_col = next((col for col in work.columns if "시장" in str(col)), None) or pick_first_present(work, ["시장구분", "시장"])
+        for _, record in work.iterrows():
+            name = _clean_text_value(record.get(name_col or ""))
+            if not _is_probable_schedule_name(name):
+                continue
+            release_date = pd.to_datetime(_scalarize_cell(record.get(date_col or "")), errors='coerce')
+            release_shares = safe_float(record.get(shares_col or ""))
+            remaining = safe_float(record.get(remain_col or ""))
+            market = _clean_market_value(record.get(market_col or ""))
+            if pd.isna(release_date) or release_shares is None:
+                continue
+            rows.append({
+                "name": name,
+                "name_key": normalize_name_key(name),
+                "release_date": pd.Timestamp(release_date).normalize(),
+                "release_shares": float(release_shares),
+                "remaining_locked_shares": None if remaining is None else float(remaining),
+                "market": market,
+                "source": "Seibro",
+                "source_detail": url or SEIBRO_RELEASE_URL,
+                "last_refresh_ts": today,
+            })
+    if not rows:
+        try:
+            text_blob = re.sub(r'\s+', ' ', lxml_html.fromstring(html).text_content()) if html else ''
+        except Exception:
+            text_blob = ''
+        pattern = re.compile(r'(20\d{2}/\d{2}/\d{2})\s+([가-힣A-Za-z0-9()·.\-]+)\s+([0-9][0-9,]*)\s+([0-9][0-9,]*)\s+(코스닥시장|유가증권시장|코넥스|K-OTC|기타비상장)')
+        for date_text, name, shares_text, remain_text, market_text in pattern.findall(text_blob):
+            if not _is_probable_schedule_name(name):
+                continue
+            release_date = pd.to_datetime(date_text, errors='coerce')
+            release_shares = safe_float(shares_text)
+            remaining = safe_float(remain_text)
+            if pd.isna(release_date) or release_shares is None:
+                continue
+            rows.append({
+                "name": name,
+                "name_key": normalize_name_key(name),
+                "release_date": pd.Timestamp(release_date).normalize(),
+                "release_shares": float(release_shares),
+                "remaining_locked_shares": None if remaining is None else float(remaining),
+                "market": _clean_market_value(market_text),
+                "source": "Seibro",
+                "source_detail": url or SEIBRO_RELEASE_URL,
+                "last_refresh_ts": today,
+            })
+    if not rows:
+        return pd.DataFrame(columns=["name", "name_key", "release_date", "release_shares", "remaining_locked_shares", "market", "source", "source_detail", "last_refresh_ts"])
+    out = pd.DataFrame(rows)
+    out = out.groupby(["name_key", "release_date", "market"], dropna=False, as_index=False).agg({
+        "name": "first",
+        "release_shares": "sum",
+        "remaining_locked_shares": "sum",
+        "source": "first",
+        "source_detail": "first",
+        "last_refresh_ts": "max",
+    })
+    return out.sort_values(["release_date", "name"], ascending=[True, True], na_position="last").reset_index(drop=True)
+
+
+def fetch_seibro_release_schedule(timeout: int = 15) -> pd.DataFrame:
+    response = _http_get(SEIBRO_RELEASE_URL, timeout=timeout)
+    return parse_seibro_release_html(response.text, url=SEIBRO_RELEASE_URL)
 _KIND_COMPANY_MATCHERS = {
     "name": ["회사명", "종목명", "기업명", "name"],
     "listing_date": ["상장일", "신규상장일", "listing_date"],
@@ -1101,7 +1558,7 @@ def parse_38_detail_html(html_text: str, *, url: str = "") -> dict[str, Any]:
     result = {
         "name": name,
         "market": market,
-        "symbol": _clean_symbol_value(_lookup_flat(flat, "종목코드", "단축코드")) or _clean_symbol_value(_extract_38_text_fallback(text_blob, r"(?:종목코드|단축코드)\s*[:：]?\s*([0-9]{1,6})(?![A-Za-z0-9])")),
+        "symbol": _clean_symbol_value(_lookup_flat(flat, "종목코드", "단축코드")) or _clean_symbol_value(_extract_38_text_fallback(text_blob, r"(?:종목코드|단축코드)\s*[:：]?\s*([0-9A-Z]{4,6})(?![A-Za-z0-9])")),
         "sector": sector,
         "underwriters": _clean_underwriter_value(_lookup_flat(flat, "주간사", "주관사")) or _clean_underwriter_value(_extract_38_text_fallback(text_blob, r"(?:주간사|주관사)\s*[:：]?\s*([가-힣A-Za-z0-9,&·\s]+(?:증권|투자증권)[가-힣A-Za-z0-9,&·\s]*)")),
         "subscription_start": sub_start,

@@ -250,6 +250,49 @@ def kind_pubprice_fixture_test() -> None:
 
 
 
+def thirtyeight_new_listing_fixture_test() -> None:
+    from src.services.ipo_scrapers import standardize_38_new_listing_table
+
+    raw = pd.DataFrame(
+        [
+            {
+                "기업명": "리센스메디컬",
+                "신규상장일": "2026.03.31",
+                "현재가(원)": "15,800",
+                "전일비(%)": "4.20%",
+                "공모가(원)": "11,000",
+            }
+        ]
+    )
+    out = standardize_38_new_listing_table(raw, today=pd.Timestamp("2026-04-08"))
+    assert not out.empty
+    assert out.loc[0, "listing_date"] == pd.Timestamp("2026-03-31")
+    assert out.loc[0, "current_price"] == 15800
+    assert out.loc[0, "offer_price"] == 11000
+    assert out.loc[0, "stage"] == "상장후"
+
+
+def thirtyeight_seed_fixture_test() -> None:
+    from src.services.ipo_scrapers import standardize_38_seed_table
+
+    raw = pd.DataFrame(
+        [
+            {
+                "name_key": "교보스팩20호",
+                "name": "교보스팩20호",
+                "ipo_price": 2000,
+                "listing_date": "2026-12-02",
+                "source_kinds": "new_listing,subscription",
+            }
+        ]
+    )
+    out = standardize_38_seed_table(raw, today=pd.Timestamp("2026-03-20"))
+    assert not out.empty
+    assert out.loc[0, "offer_price"] == 2000
+    assert out.loc[0, "listing_date"] == pd.Timestamp("2026-12-02")
+    assert out.loc[0, "stage"] == "상장예정"
+
+
 def thirtyeight_detail_fixture_test() -> None:
     from src.services.ipo_scrapers import parse_38_detail_html
 
@@ -296,7 +339,7 @@ def thirtyeight_menu_blob_fixture_test() -> None:
     out = parse_38_detail_html(html)
     assert out["name"] == "테스트바이오"
     assert out["market"] == "코스닥"
-    assert out.get("symbol") is None or out.get("symbol") == ""
+    assert out.get("symbol") == "0088D0"
     assert out.get("sector") is None
 
 
@@ -487,7 +530,7 @@ def packaged_kind_seed_fixture_test() -> None:
     repo = IPORepository(Path("data"))
     detected = repo.auto_detect_local_kind_export(include_home_dirs=False)
     assert detected is not None
-    assert detected.name == "kind_ipo_master.csv"
+    assert detected.name in {"combined_master.csv", "kind_ipo_master.csv"}
     out = load_kind_export_from_path(detected)
     target = out[out["name_key"] == "지아이이노베이션"]
     assert not target.empty
@@ -692,6 +735,68 @@ def unified_empty_csv_fixture_test() -> None:
         assert not bundle.unlocks.empty
 
 
+def demand_result_fixture_test() -> None:
+    from src.services.ipo_scrapers import parse_38_demand_result_html
+
+    html = """
+    <html><body>
+      <table>
+        <tr><th>기업명</th><th>예측일</th><th>공모희망가(원)</th><th>공모가(원)</th><th>기관 경쟁률</th><th>의무보유 확약</th><th>주간사</th></tr>
+        <tr><td>테스트바이오</td><td>2026.03.16</td><td>10,000~12,000</td><td>11,000</td><td>987.65:1</td><td>12.34%</td><td>한국투자증권</td></tr>
+      </table>
+    </body></html>
+    """
+    out = parse_38_demand_result_html(html, url="https://www.38.co.kr/html/fund/?o=r1")
+    assert not out.empty
+    row = out.iloc[0]
+    assert row["name"] == "테스트바이오"
+    assert row["forecast_date"] == pd.Timestamp("2026-03-16")
+    assert row["offer_price"] == 11000
+    assert row["institutional_competition_ratio"] == 987.65
+    assert row["lockup_commitment_ratio"] == 12.34
+
+
+def ir_link_fixture_test() -> None:
+    from src.services.ipo_scrapers import parse_38_ir_html
+
+    html = """
+    <html><body>
+      <table>
+        <tr><th>번호</th><th>기업명</th><th>자료명</th><th>등록일</th><th>첨부</th></tr>
+        <tr><td>1</td><td>테스트바이오</td><td>기업설명회 IR Deck</td><td>2026.03.15</td><td><a href="/upload/ir/testbio.pdf">PDF</a></td></tr>
+      </table>
+    </body></html>
+    """
+    out = parse_38_ir_html(html, url="https://www.38.co.kr/html/ipo/ir_data.php")
+    assert not out.empty
+    row = out.iloc[0]
+    assert row["name"] == "테스트바이오"
+    assert row["ir_title"] == "기업설명회 IR Deck"
+    assert row["ir_date"] == pd.Timestamp("2026-03-15")
+    assert row["ir_pdf_url"] == "https://www.38.co.kr/upload/ir/testbio.pdf"
+
+
+def seibro_release_fixture_test() -> None:
+    from src.services.ipo_scrapers import parse_seibro_release_html
+
+    html = """
+    <html><body>
+      <table>
+        <tr><th>해제일</th><th>기업명</th><th>해제주식수</th><th>예수잔량</th><th>시장구분</th></tr>
+        <tr><td>2026/04/01</td><td>테스트바이오</td><td>1,500,000</td><td>500,000</td><td>코스닥시장</td></tr>
+        <tr><td>2026/04/01</td><td>테스트바이오</td><td>250,000</td><td>0</td><td>코스닥시장</td></tr>
+      </table>
+    </body></html>
+    """
+    out = parse_seibro_release_html(html, url="https://m.seibro.or.kr/cnts/company/selectRelease.do")
+    assert not out.empty
+    row = out.iloc[0]
+    assert row["name"] == "테스트바이오"
+    assert row["release_date"] == pd.Timestamp("2026-04-01")
+    assert row["release_shares"] == 1750000
+    assert row["market"] == "코스닥"
+
+
 def main() -> None:
     root = Path(__file__).resolve().parents[1]
     data_dir = root / "data"
@@ -745,6 +850,8 @@ def main() -> None:
     safe_float_fixture_test()
     kind_public_offering_fixture_test()
     kind_pubprice_fixture_test()
+    thirtyeight_new_listing_fixture_test()
+    thirtyeight_seed_fixture_test()
     thirtyeight_detail_fixture_test()
     thirtyeight_menu_blob_fixture_test()
     clean_issue_frame_fixture_test()
@@ -758,6 +865,9 @@ def main() -> None:
     issue_recency_sort_fixture_test()
     issue_recency_sort_preserves_scores_fixture_test()
     thirtyeight_schedule_detail_enrichment_fixture_test()
+    demand_result_fixture_test()
+    ir_link_fixture_test()
+    seibro_release_fixture_test()
     packaged_kind_seed_fixture_test()
     custom_backtest_threshold_fixture_test()
     calendar_timeline_fixture_test()
