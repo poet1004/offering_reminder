@@ -10,7 +10,7 @@ import pandas as pd
 from lxml import html as lxml_html
 
 from src.services.dart_client import DartClient
-from src.utils import cache_dir, ensure_dir, fmt_date, normalize_name_key, safe_float
+from src.utils import cache_dir, ensure_dir, fmt_date, normalize_name_key, parse_date_range_text, parse_date_text, safe_float, today_kst
 
 
 HTML_EXTENSIONS = {".html", ".htm", ".xhtml", ".xml", ".txt"}
@@ -27,6 +27,10 @@ METRIC_FIELDS = [
     "employee_forfeit_ratio",
     "circulating_shares_on_listing",
     "circulating_shares_ratio_on_listing",
+    "institutional_competition_ratio",
+    "forecast_date",
+    "subscription_start",
+    "subscription_end",
 ]
 
 
@@ -213,6 +217,10 @@ class DartIPOParser:
         overlay = {
             "symbol": str(company.get("stock_code") or "").zfill(6) if str(company.get("stock_code") or "").isdigit() else None,
             "offer_price": metrics.get("offer_price"),
+            "institutional_competition_ratio": metrics.get("institutional_competition_ratio"),
+            "forecast_date": metrics.get("forecast_date"),
+            "subscription_start": metrics.get("subscription_start"),
+            "subscription_end": metrics.get("subscription_end"),
             "lockup_commitment_ratio": metrics.get("lockup_commitment_ratio"),
             "employee_subscription_ratio": metrics.get("employee_subscription_ratio"),
             "employee_forfeit_ratio": metrics.get("employee_forfeit_ratio"),
@@ -300,6 +308,41 @@ class DartIPOParser:
             )
 
         apply_evidence("lockup_commitment_ratio", self._best_percentage_line(lines, [["의무보유", "확약"], ["보유확약"]], prefer_total=False))
+        apply_evidence("institutional_competition_ratio", self._extract_institutional_competition_ratio(lines, structured_tables))
+        date_range = self._extract_subscription_date_range(lines)
+        if date_range:
+            metrics.setdefault("subscription_start", date_range.get("start"))
+            metrics.setdefault("subscription_end", date_range.get("end"))
+            evidence_rows.append(
+                {
+                    "metric": "subscription_start",
+                    "value": date_range.get("start"),
+                    "source": date_range.get("source"),
+                    "basis": date_range.get("basis"),
+                    "excerpt": date_range.get("excerpt"),
+                }
+            )
+            evidence_rows.append(
+                {
+                    "metric": "subscription_end",
+                    "value": date_range.get("end"),
+                    "source": date_range.get("source"),
+                    "basis": date_range.get("basis"),
+                    "excerpt": date_range.get("excerpt"),
+                }
+            )
+        forecast = self._extract_forecast_date(lines)
+        if forecast and metrics.get("forecast_date") is None:
+            metrics["forecast_date"] = forecast.get("value")
+            evidence_rows.append(
+                {
+                    "metric": "forecast_date",
+                    "value": forecast.get("value"),
+                    "source": forecast.get("source"),
+                    "basis": forecast.get("basis"),
+                    "excerpt": forecast.get("excerpt"),
+                }
+            )
         apply_evidence(
             "employee_forfeit_ratio",
             self._extract_employee_forfeit(lines, structured_tables),
@@ -390,6 +433,90 @@ class DartIPOParser:
                 metrics["offer_price"] = self._first_numeric_value(general, ["slprc", "exprc"])
 
         return metrics
+
+    def _extract_institutional_competition_ratio(self, lines: list[dict[str, Any]], structured_tables: dict[str, pd.DataFrame]) -> dict[str, Any] | None:
+        explicit = self._best_percentage_line(lines, [["기관", "경쟁률"], ["수요예측", "경쟁률"]], prefer_total=False)
+        if explicit:
+            return explicit
+        for title, table in structured_tables.items():
+            if table is None or table.empty:
+                continue
+            normalized = self._normalize_table(table)
+            if normalized.empty:
+                continue
+            row_text = normalized.astype(str).agg(" | ".join, axis=1)
+            targets = row_text[row_text.str.contains("기관", regex=False) & row_text.str.contains("경쟁", regex=False)]
+            if targets.empty:
+                continue
+            excerpt = str(targets.iloc[0])
+            value = self._best_percent_from_text(excerpt)
+            if value is not None:
+                return {
+                    "value": value,
+                    "source": f"estkRs:{title}",
+                    "basis": "기관/수요예측 경쟁률 문구",
+                    "excerpt": excerpt,
+                }
+        return None
+
+    def _extract_forecast_date(self, lines: list[dict[str, Any]]) -> dict[str, Any] | None:
+        default_year = today_kst().year
+        for item in lines:
+            text = str(item["text"])
+            compact = text.replace(" ", "")
+            if not (("수요예측" in compact) or ("예측일" in compact)):
+                continue
+            start, end = parse_date_range_text(text, default_year=default_year)
+            value = start or end
+            if value is None:
+                value = parse_date_text(text, default_year=default_year)
+            if value is not None:
+                return {
+                    "value": value,
+                    "source": item["source"],
+                    "basis": "수요예측 일정/일자 문구",
+                    "excerpt": text,
+                }
+        return None
+
+    def _extract_subscription_date_range(self, lines: list[dict[str, Any]]) -> dict[str, Any] | None:
+        default_year = today_kst().year
+        candidates: list[dict[str, Any]] = []
+        for item in lines:
+            text = str(item["text"])
+            compact = text.replace(" ", "")
+            if not (("청약일" in compact) or ("청약일정" in compact) or ("청약기간" in compact)):
+                continue
+            start, end = parse_date_range_text(text, default_year=default_year)
+            if start is None and end is None:
+                single = parse_date_text(text, default_year=default_year)
+                start = single
+                end = single
+            if start is None and end is None:
+                continue
+            score = 0
+            if "청약일정" in compact:
+                score += 3
+            if "청약기간" in compact:
+                score += 2
+            if start is not None and end is not None:
+                score += 1
+            candidates.append(
+                {
+                    "start": start,
+                    "end": end,
+                    "source": item["source"],
+                    "basis": "청약 일정/기간 문구",
+                    "excerpt": text,
+                    "score": score,
+                }
+            )
+        if not candidates:
+            return None
+        candidates.sort(key=lambda x: (-int(x["score"]), x.get("start") is None, x.get("end") is None))
+        best = candidates[0].copy()
+        best.pop("score", None)
+        return best
 
     def _extract_employee_subscription(self, lines: list[dict[str, Any]], structured_tables: dict[str, pd.DataFrame], metrics: dict[str, Any]) -> dict[str, Any] | None:
         offer = safe_float(metrics.get("total_offer_shares"))

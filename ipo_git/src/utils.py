@@ -572,7 +572,40 @@ def normalize_name_key(name: Any) -> str:
     text = re.sub(r"\(.*?\)", "", text)
     text = text.replace("㈜", "").replace("(주)", "").replace("주식회사", "")
     text = re.sub(r"\s+", "", text)
+    text = text.replace("기업인수목적회사", "스팩").replace("기업인수목적", "스팩")
     text = re.sub(r"[^0-9A-Za-z가-힣]", "", text)
+
+    prefix_aliases = {
+        "엔에이치": "nh",
+        "케이비": "kb",
+        "아이비케이": "ibk",
+        "아이비케이에스": "ibks",
+        "디비": "db",
+        "에스비아이": "sbi",
+        "에이치비": "hb",
+    }
+    for src, dst in sorted(prefix_aliases.items(), key=lambda x: len(x[0]), reverse=True):
+        if text.startswith(src):
+            text = dst + text[len(src):]
+            break
+
+    spac_patterns = [
+        r"^(.*?)(?:제)?(\d+)호스팩$",
+        r"^(.*?)스팩(?:제)?(\d+)호$",
+        r"^(.*?)(?:제)?(\d+)호기업인수목적(?:회사)?$",
+    ]
+    for pattern in spac_patterns:
+        match = re.match(pattern, text, flags=re.IGNORECASE)
+        if not match:
+            continue
+        prefix, number = match.groups()
+        try:
+            normalized_number = str(int(number))
+        except Exception:
+            normalized_number = str(number).lstrip("0") or "0"
+        text = f"{prefix}스팩{normalized_number}호"
+        break
+
     return text.lower()
 
 

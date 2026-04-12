@@ -7,7 +7,13 @@ from typing import Any
 import pandas as pd
 import requests
 
+try:
+    from pykrx import stock as pykrx_stock
+except Exception:  # pragma: no cover - optional runtime dependency
+    pykrx_stock = None
+
 from src.services.ipo_scrapers import fetch_38_new_listing_table, standardize_38_new_listing_table
+from src.services.kis_client import KISClient
 from src.utils import normalize_name_key, normalize_symbol_text, safe_float, today_kst
 
 
@@ -20,9 +26,12 @@ class PublicQuoteService:
     3) 마지막 성공 캐시(public_quotes_latest.csv)
     """
 
-    def __init__(self, data_dir: str | Path):
+    def __init__(self, data_dir: str | Path, kis_client: KISClient | None = None):
         self.data_dir = Path(data_dir)
         self.cache_path = self.data_dir / "cache" / "public_quotes_latest.csv"
+        self.pykrx_cache_path = self.data_dir / "cache" / "public_quotes_pykrx_latest.csv"
+        self.kis_client = kis_client
+        self._pykrx_snapshot: pd.DataFrame | None = None
         self.session = requests.Session()
         self.session.headers.update(
             {
@@ -44,6 +53,7 @@ class PublicQuoteService:
             return self._empty()
 
         cache = self._read_cache()
+        pykrx_snapshot = self._get_pykrx_snapshot()
         rows: list[dict[str, Any]] = []
         recent_38: pd.DataFrame | None = None
         for _, row in work.drop_duplicates(subset=["name_key", "symbol"], keep="first").head(max_items).iterrows():
@@ -51,7 +61,11 @@ class PublicQuoteService:
             name = str(row.get("name") or "").strip()
             name_key = normalize_name_key(name)
             payload: dict[str, Any] | None = None
-            if symbol:
+            if symbol and self.kis_client is not None:
+                payload = self._fetch_kis_quote(symbol, name=name, name_key=name_key)
+            if payload is None and symbol and not pykrx_snapshot.empty:
+                payload = self._lookup_pykrx_snapshot(pykrx_snapshot, symbol=symbol, name=name, name_key=name_key)
+            if payload is None and symbol:
                 payload = self._fetch_naver_quote(symbol, name=name, name_key=name_key)
             if payload is None:
                 if recent_38 is None:
@@ -91,7 +105,10 @@ class PublicQuoteService:
         try:
             self.cache_path.parent.mkdir(parents=True, exist_ok=True)
             existing = self._read_cache()
-            merged = pd.concat([df, existing], ignore_index=True)
+            frames = [frame for frame in [df, existing] if isinstance(frame, pd.DataFrame) and not frame.empty]
+            if not frames:
+                return
+            merged = pd.concat(frames, ignore_index=True)
             if "name_key" not in merged.columns and "name" in merged.columns:
                 merged["name_key"] = merged["name"].map(normalize_name_key)
             keep_cols = [c for c in ["name", "name_key", "symbol", "market", "current_price", "day_change_pct", "quote_asof", "quote_provider"] if c in merged.columns]
@@ -103,6 +120,129 @@ class PublicQuoteService:
             merged.to_csv(self.cache_path, index=False)
         except Exception:
             return
+
+    def _read_pykrx_cache(self) -> pd.DataFrame:
+        if not self.pykrx_cache_path.exists():
+            return self._empty()
+        try:
+            df = pd.read_csv(self.pykrx_cache_path)
+        except Exception:
+            return self._empty()
+        if df.empty:
+            return self._empty()
+        if "symbol" in df.columns:
+            df["symbol"] = df["symbol"].map(normalize_symbol_text)
+        return df
+
+    def _write_pykrx_cache(self, df: pd.DataFrame) -> None:
+        if df is None or df.empty:
+            return
+        try:
+            self.pykrx_cache_path.parent.mkdir(parents=True, exist_ok=True)
+            df.to_csv(self.pykrx_cache_path, index=False)
+        except Exception:
+            return
+
+    def _get_pykrx_snapshot(self) -> pd.DataFrame:
+        if self._pykrx_snapshot is not None:
+            return self._pykrx_snapshot
+        cached = self._read_pykrx_cache()
+        today = today_kst().normalize()
+        if not cached.empty and "quote_asof" in cached.columns:
+            asof = pd.to_datetime(cached["quote_asof"], errors="coerce").max()
+            if pd.notna(asof) and asof >= today - pd.Timedelta(days=7):
+                self._pykrx_snapshot = cached
+                return cached
+        live = self._fetch_pykrx_snapshot()
+        if not live.empty:
+            self._write_pykrx_cache(live)
+            self._pykrx_snapshot = live
+            return live
+        self._pykrx_snapshot = cached if not cached.empty else self._empty()
+        return self._pykrx_snapshot
+
+    def _fetch_pykrx_snapshot(self) -> pd.DataFrame:
+        if pykrx_stock is None:
+            return self._empty()
+        today = today_kst().normalize()
+        market_specs = [("KOSPI", "코스피"), ("KOSDAQ", "코스닥"), ("KONEX", "코넥스")]
+        for offset in range(0, 10):
+            asof = (today - pd.Timedelta(days=offset)).strftime("%Y%m%d")
+            frames: list[pd.DataFrame] = []
+            for market_param, market_label in market_specs:
+                raw = self._call_pykrx_market_snapshot(asof, market_param)
+                normalized = self._normalize_pykrx_snapshot(raw, market_label=market_label, asof=asof)
+                if not normalized.empty:
+                    frames.append(normalized)
+            if not frames:
+                raw_all = self._call_pykrx_market_snapshot(asof, None)
+                normalized_all = self._normalize_pykrx_snapshot(raw_all, market_label=None, asof=asof)
+                if not normalized_all.empty:
+                    frames.append(normalized_all)
+            if frames:
+                merged = pd.concat(frames, ignore_index=True)
+                merged = merged.drop_duplicates(subset=[c for c in ["symbol"] if c in merged.columns], keep="first")
+                return merged
+        return self._empty()
+
+    def _call_pykrx_market_snapshot(self, asof: str, market_param: str | None) -> pd.DataFrame:
+        if pykrx_stock is None:
+            return pd.DataFrame()
+        try:
+            if market_param:
+                return pykrx_stock.get_market_ohlcv_by_ticker(asof, market=market_param)
+            return pykrx_stock.get_market_ohlcv_by_ticker(asof)
+        except TypeError:
+            try:
+                if market_param:
+                    return pykrx_stock.get_market_ohlcv_by_ticker(asof, market_param)
+                return pykrx_stock.get_market_ohlcv_by_ticker(asof)
+            except Exception:
+                return pd.DataFrame()
+        except Exception:
+            return pd.DataFrame()
+
+    def _normalize_pykrx_snapshot(self, raw: pd.DataFrame | None, *, market_label: str | None, asof: str) -> pd.DataFrame:
+        if raw is None or not isinstance(raw, pd.DataFrame) or raw.empty:
+            return self._empty()
+        frame = raw.reset_index()
+        ticker_col = next((col for col in frame.columns if str(col) in {"티커", "ticker", "symbol", "종목코드"}), frame.columns[0])
+        price_col = next((col for col in frame.columns if str(col) in {"종가", "close", "Close"}), None)
+        change_col = next((col for col in frame.columns if "등락률" in str(col) or str(col) in {"change_pct", "전일비"}), None)
+        if price_col is None:
+            return self._empty()
+        out = pd.DataFrame({
+            "symbol": frame[ticker_col].map(normalize_symbol_text),
+            "market": market_label,
+            "current_price": pd.to_numeric(frame[price_col].astype(str).str.replace(",", "", regex=False), errors="coerce"),
+            "quote_asof": pd.Timestamp(asof),
+            "quote_provider": "pykrx",
+        })
+        if change_col is not None:
+            out["day_change_pct"] = pd.to_numeric(frame[change_col].astype(str).str.replace("%", "", regex=False).str.replace(",", "", regex=False), errors="coerce")
+        else:
+            out["day_change_pct"] = pd.NA
+        out = out.dropna(subset=["symbol", "current_price"]).copy()
+        return out[["symbol", "market", "current_price", "day_change_pct", "quote_asof", "quote_provider"]]
+
+    def _lookup_pykrx_snapshot(self, snapshot: pd.DataFrame, *, symbol: str | None, name: str, name_key: str) -> dict[str, Any] | None:
+        code = normalize_symbol_text(symbol)
+        if not code or snapshot is None or snapshot.empty or "symbol" not in snapshot.columns:
+            return None
+        subset = snapshot[snapshot["symbol"].map(normalize_symbol_text) == code].copy()
+        if subset.empty:
+            return None
+        row = subset.sort_values([c for c in ["quote_asof", "symbol"] if c in subset.columns], ascending=[False, True], na_position="last").iloc[0].to_dict()
+        return {
+            "name": name or row.get("name"),
+            "name_key": name_key or normalize_name_key(name or row.get("name") or ""),
+            "symbol": code,
+            "market": row.get("market"),
+            "current_price": self._to_number(row.get("current_price")),
+            "day_change_pct": self._to_number(row.get("day_change_pct")),
+            "quote_asof": row.get("quote_asof"),
+            "quote_provider": row.get("quote_provider") or "pykrx",
+        }
 
     def _lookup_cache(self, cache: pd.DataFrame, *, name_key: str, symbol: str | None) -> dict[str, Any] | None:
         subset = pd.DataFrame()
@@ -157,6 +297,30 @@ class PublicQuoteService:
             "day_change_pct": self._to_number(row.get("day_change_pct")),
             "quote_asof": row.get("listing_date") or today_kst().normalize(),
             "quote_provider": row.get("source") or "38-new-listing",
+        }
+
+    def _fetch_kis_quote(self, symbol: str, *, name: str = "", name_key: str = "") -> dict[str, Any] | None:
+        if self.kis_client is None:
+            return None
+        code = normalize_symbol_text(symbol)
+        if not code:
+            return None
+        try:
+            quote = self.kis_client.get_stock_price(code)
+        except Exception:
+            return None
+        price = self._to_number(quote.get("price"))
+        if price is None:
+            return None
+        return {
+            "name": name or quote.get("name") or None,
+            "name_key": name_key or normalize_name_key(name or quote.get("name") or ""),
+            "symbol": code,
+            "market": None,
+            "current_price": price,
+            "day_change_pct": self._to_number(quote.get("change_pct")),
+            "quote_asof": today_kst().normalize(),
+            "quote_provider": "KIS",
         }
 
     def _fetch_naver_quote(self, symbol: str, *, name: str = "", name_key: str = "") -> dict[str, Any] | None:

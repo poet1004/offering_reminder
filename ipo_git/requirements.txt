@@ -1,12 +1,14 @@
-streamlit>=1.33
-pandas>=2.0
-requests>=2.31
-python-dateutil>=2.9
-lxml>=5.2
-html5lib>=1.1
-openpyxl>=3.1
-mojito2
-Pillow>=10.0
-imageio>=2.34
-imageio-ffmpeg>=0.5
-pykrx>=1.2.4
+# Python 3.11 x64 required on Windows (64-bit required for pandas wheel)
+# 기본 웹 앱/캐시 갱신/모바일 피드 생성용 핵심 의존성
+streamlit==1.44.1
+numpy==1.26.4
+pandas==2.2.3
+requests==2.32.3
+python-dateutil==2.9.0.post0
+lxml==6.0.3
+html5lib==1.1
+openpyxl==3.1.5
+Pillow==10.4.0
+imageio==2.37.2
+imageio-ffmpeg==0.6.0
+pykrx==1.2.4
