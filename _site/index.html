@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>공모주 알리미 웹</title>
     <meta name="description" content="공모주 청약, 상장, 보호예수 해제 일정을 정적 웹으로 보는 공모주 알리미" />
-    <link rel="stylesheet" href="./assets/app.css?v=20260412r4" />
+    <link rel="stylesheet" href="./assets/app.css?v=20260412r5" />
   </head>
   <body>
     <div class="app-shell">
@@ -14,7 +14,7 @@
           <div>
             <p class="eyebrow">GitHub Pages 배포용 정적 웹</p>
             <h1>공모주 알리미 웹</h1>
-            <p class="hero-subtitle">청약, 상장, 보호예수 해제, 딜 탐색기를 브라우저에서 바로 확인합니다.</p>
+            <p class="hero-subtitle">청약, 상장, 보호예수 해제 일정을 브라우저에서 바로 확인합니다.</p>
           </div>
           <div class="hero-status">
             <div class="status-pill" id="load-status">로딩 중</div>
@@ -27,8 +27,6 @@
           <a href="#subscriptions">청약</a>
           <a href="#listings">상장</a>
           <a href="#unlocks">보호예수</a>
-          <a href="#explorer">딜 탐색기</a>
-          <a href="#data-health">데이터</a>
         </nav>
       </header>
 
@@ -37,13 +35,8 @@
           <div class="section-head">
             <div>
               <p class="section-kicker">Dashboard</p>
-              <h2>오늘 브리핑</h2>
+              <h2>데일리 브리핑</h2>
             </div>
-            <a class="ghost-link" href="#data-health">데이터 상태 보기</a>
-          </div>
-          <div class="briefing-card card">
-            <p id="briefing-line-1">-</p>
-            <p id="briefing-line-2">-</p>
           </div>
 
           <div class="stats-grid" id="summary-stats"></div>
@@ -59,7 +52,7 @@
             <div class="card">
               <div class="card-head">
                 <h3>가까운 일정</h3>
-                <span class="card-note">최대 12건</span>
+                <span class="card-note">최대 8건</span>
               </div>
               <div id="timeline-list" class="timeline-list"></div>
             </div>
@@ -80,31 +73,6 @@
             <div class="calendar-grid" id="calendar-grid"></div>
             <div class="calendar-detail" id="calendar-detail"></div>
           </div>
-
-          <div class="two-col-grid">
-            <div class="card">
-              <div class="card-head">
-                <h3>곧 청약 시작</h3>
-                <span class="card-note">최대 6건</span>
-              </div>
-              <div id="dashboard-subscription-cards" class="compact-card-grid"></div>
-            </div>
-            <div class="card">
-              <div class="card-head">
-                <h3>가까운 보호예수 해제</h3>
-                <span class="card-note">최대 6건</span>
-              </div>
-              <div id="dashboard-unlock-cards" class="compact-card-grid"></div>
-            </div>
-          </div>
-
-          <div class="card">
-            <div class="card-head">
-              <h3>전략 요약</h3>
-              <span class="card-note">백테스트 요약 상위 4개</span>
-            </div>
-            <div id="strategy-grid" class="compact-card-grid"></div>
-          </div>
         </section>
 
         <section id="subscriptions" class="section-block">
@@ -115,7 +83,7 @@
             </div>
             <div class="inline-meta" id="subscription-meta"></div>
           </div>
-          <div class="controls card controls-card">
+          <div class="controls card controls-card controls-card-subscription">
             <label>
               <span>검색</span>
               <input type="search" id="subscription-query" placeholder="종목명, 주관사, 종목코드" />
@@ -127,11 +95,11 @@
               </select>
             </label>
             <label>
-              <span>정렬</span>
-              <select id="subscription-sort">
-                <option value="soon">청약일 가까운 순</option>
-                <option value="latest">청약일 최근 순</option>
-                <option value="name">종목명</option>
+              <span>구분</span>
+              <select id="subscription-group">
+                <option value="upcoming" selected>청약 예정</option>
+                <option value="listed">상장 후</option>
+                <option value="all">전체</option>
               </select>
             </label>
           </div>
@@ -147,25 +115,18 @@
             </div>
             <div class="inline-meta" id="listing-meta"></div>
           </div>
-          <div class="controls card controls-card">
+          <div class="controls card controls-card controls-card-listing">
             <label>
               <span>검색</span>
               <input type="search" id="listing-query" placeholder="종목명, 종목코드, 시장" />
             </label>
             <label>
-              <span>상태</span>
-              <select id="listing-status-filter">
-                <option value="">전체</option>
-                <option value="listed">상장</option>
-                <option value="delisted">상장폐지/청산</option>
-              </select>
-            </label>
-            <label>
-              <span>정렬</span>
-              <select id="listing-sort">
-                <option value="recent">상장일 최근 순</option>
-                <option value="oldest">상장일 오래된 순</option>
-                <option value="return">공모가 대비 수익률</option>
+              <span>구분</span>
+              <select id="listing-group">
+                <option value="upcoming">상장 예정</option>
+                <option value="listed" selected>상장 후</option>
+                <option value="delisted">상장폐지</option>
+                <option value="all">전체</option>
               </select>
             </label>
           </div>
@@ -198,7 +159,7 @@
             </div>
             <div class="inline-meta" id="unlock-meta"></div>
           </div>
-          <div class="controls card controls-card">
+          <div class="controls card controls-card controls-card-unlock">
             <label>
               <span>검색</span>
               <input type="search" id="unlock-query" placeholder="종목명, 종목코드" />
@@ -211,13 +172,6 @@
                 <option value="3m">3개월</option>
                 <option value="6m">6개월</option>
                 <option value="1y">1년</option>
-              </select>
-            </label>
-            <label>
-              <span>정렬</span>
-              <select id="unlock-sort">
-                <option value="soon">해제일 가까운 순</option>
-                <option value="latest">해제일 최근 순</option>
               </select>
             </label>
           </div>
@@ -239,106 +193,6 @@
             <div class="pager" id="unlock-pager"></div>
           </div>
         </section>
-
-        <section id="explorer" class="section-block">
-          <div class="section-head">
-            <div>
-              <p class="section-kicker">Explorer</p>
-              <h2>딜 탐색기</h2>
-            </div>
-            <div class="inline-meta" id="explorer-meta"></div>
-          </div>
-          <div class="controls card controls-card">
-            <label>
-              <span>검색</span>
-              <input type="search" id="explorer-query" placeholder="종목명, 주관사, 업종, 코드" />
-            </label>
-            <label>
-              <span>시장</span>
-              <select id="explorer-market">
-                <option value="">전체</option>
-              </select>
-            </label>
-            <label>
-              <span>단계</span>
-              <select id="explorer-stage">
-                <option value="">전체</option>
-              </select>
-            </label>
-            <label>
-              <span>정렬</span>
-              <select id="explorer-sort">
-                <option value="recent-listing">상장일 최근 순</option>
-                <option value="recent-subscription">청약일 최근 순</option>
-                <option value="best-return">공모가 대비 수익률</option>
-                <option value="name">종목명</option>
-              </select>
-            </label>
-          </div>
-          <div class="table-wrap card">
-            <table class="data-table" id="explorer-table">
-              <thead>
-                <tr>
-                  <th>종목</th>
-                  <th>시장</th>
-                  <th>단계</th>
-                  <th>청약일</th>
-                  <th>상장일</th>
-                  <th>공모가</th>
-                  <th>현재가</th>
-                  <th>수익률</th>
-                  <th>주관사</th>
-                </tr>
-              </thead>
-              <tbody></tbody>
-            </table>
-            <div class="pager" id="explorer-pager"></div>
-          </div>
-        </section>
-
-        <section id="data-health" class="section-block">
-          <div class="section-head">
-            <div>
-              <p class="section-kicker">Data</p>
-              <h2>데이터 상태</h2>
-            </div>
-            <div class="inline-meta">캐시/경고/배포 정보</div>
-          </div>
-          <div class="two-col-grid">
-            <div class="card">
-              <div class="card-head">
-                <h3>경고</h3>
-                <span class="card-note">피드와 검증 리포트 기준</span>
-              </div>
-              <div id="warning-list" class="bullet-list"></div>
-            </div>
-            <div class="card">
-              <div class="card-head">
-                <h3>캐시 인벤토리</h3>
-                <span class="card-note">행 수/기준 시각</span>
-              </div>
-              <div id="cache-grid" class="cache-grid"></div>
-            </div>
-          </div>
-          <div class="card">
-            <div class="card-head">
-              <h3>소스 상태</h3>
-              <span class="card-note">성공/실패 및 경로</span>
-            </div>
-            <div id="source-status-list" class="source-status-list"></div>
-          </div>
-          <div class="card">
-            <div class="card-head">
-              <h3>배포 가이드</h3>
-              <span class="card-note">GitHub Pages / 정적 호스팅 공통</span>
-            </div>
-            <ol class="deploy-steps" id="deploy-steps">
-              <li>로컬에서 캐시를 새로 갱신한 뒤 모바일 피드와 정적 사이트를 생성합니다.</li>
-              <li>GitHub 저장소에 push 하면 GitHub Actions가 정적 사이트를 배포합니다.</li>
-              <li>같은 정적 출력물은 다른 정적 호스팅에도 그대로 올릴 수 있습니다.</li>
-            </ol>
-          </div>
-        </section>
       </main>
     </div>
 
@@ -349,6 +203,6 @@
         healthPaths: ["./data/mobile-feed-verify.json"]
       };
     </script>
-    <script src="./assets/app.js?v=20260412r4"></script>
+    <script src="./assets/app.js?v=20260412r5"></script>
   </body>
 </html>

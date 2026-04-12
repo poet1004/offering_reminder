@@ -7,7 +7,7 @@ const state = {
   unlockRows: [],
   timeline: [],
   today: null,
-  ui: { listingPage: 1, listingPerPage: 10, subscriptionPage: 1, subscriptionPerPage: 6, unlockPage: 1, unlockPerPage: 10, explorerPage: 1, explorerPerPage: 10, calendarMonthOffset: 0, calendarSelectedDate: '' },
+  ui: { listingPage: 1, listingPerPage: 8, subscriptionPage: 1, subscriptionPerPage: 8, unlockPage: 1, unlockPerPage: 8, explorerPage: 1, explorerPerPage: 8, calendarMonthOffset: 0, calendarSelectedDate: '' },
 };
 
 const el = (selector) => document.querySelector(selector);
@@ -119,6 +119,149 @@ function sortByDateAsc(a, b, key) {
 
 function sortByDateDesc(a, b, key) {
   return sortByDateAsc(b, a, key);
+}
+
+
+function compareByProximity(a, b, key, today) {
+  const ad = parseDate(a[key]);
+  const bd = parseDate(b[key]);
+  const aDelta = ad ? Math.abs(diffDays(ad, today) ?? 999999) : 999999;
+  const bDelta = bd ? Math.abs(diffDays(bd, today) ?? 999999) : 999999;
+  if (aDelta !== bDelta) return aDelta - bDelta;
+  if (ad && bd) return ad - bd;
+  if (ad) return -1;
+  if (bd) return 1;
+  return 0;
+}
+
+function isUpcomingStage(item) {
+  const stage = String(item.stage || '');
+  if (/청약예정|수요예측|청약/.test(stage) && !/상장후/.test(stage)) return true;
+  const start = parseDate(item.subscriptionStart);
+  return !!(start && diffDays(start, state.today) !== null && diffDays(start, state.today) >= 0);
+}
+
+function isListedStage(item) {
+  const stage = String(item.stage || '');
+  if (/상장후|상장/.test(stage)) return true;
+  const listing = parseDate(item.listingDate);
+  return !!(listing && diffDays(listing, state.today) !== null && diffDays(listing, state.today) <= 0);
+}
+
+function isDelistedStatus(item) {
+  return /상장폐지|청산/.test(String(item.listingStatus || ''));
+}
+
+function countNearbyItems(items, key, today, days = 30) {
+  return (items || []).filter((item) => {
+    const date = parseDate(item[key]);
+    if (!date) return false;
+    const delta = diffDays(date, today);
+    return delta !== null && Math.abs(delta) <= days;
+  }).length;
+}
+
+function buildUpcomingTimeline(items, today) {
+  const rows = [];
+  for (const item of items || []) {
+    const subStart = parseDate(item.subscriptionStart);
+    if (subStart) {
+      const delta = diffDays(subStart, today);
+      if (delta !== null && delta >= -5 && delta <= 45) {
+        rows.push({
+          id: `${item.id || item.displayName}_subscription`,
+          type: 'subscription',
+          date: item.subscriptionStart,
+          dateObj: subStart,
+          name: item.displayName,
+          market: item.market,
+          stage: item.stage,
+          subLabel: `청약 ${item.subscriptionRange}`,
+        });
+      }
+    }
+    const listingDate = parseDate(item.listingDate);
+    if (listingDate) {
+      const delta = diffDays(listingDate, today);
+      if (delta !== null && delta >= -30 && delta <= 45) {
+        rows.push({
+          id: `${item.id || item.displayName}_listing`,
+          type: 'listing',
+          date: item.listingDate,
+          dateObj: listingDate,
+          name: item.displayName,
+          market: item.market,
+          stage: item.stage,
+          subLabel: '상장',
+        });
+      }
+    }
+  }
+  rows.sort((a, b) => {
+    const aDelta = Math.abs(diffDays(a.dateObj, today) ?? 999999);
+    const bDelta = Math.abs(diffDays(b.dateObj, today) ?? 999999);
+    if (aDelta !== bDelta) return aDelta - bDelta;
+    return a.dateObj - b.dateObj;
+  });
+  return rows.slice(0, 8);
+}
+
+function buildCalendarEntries(items, unlockRows, monthStart, monthEnd) {
+  const rowsByDay = new Map();
+  const pushEntry = (dateValue, entry) => {
+    const key = toDateKey(dateValue);
+    if (!key) return;
+    const date = parseDate(dateValue);
+    if (!date) return;
+    if (date < monthStart || date > monthEnd) return;
+    if (!rowsByDay.has(key)) rowsByDay.set(key, []);
+    rowsByDay.get(key).push(entry);
+  };
+
+  for (const item of items || []) {
+    const start = parseDate(item.subscriptionStart);
+    const end = parseDate(item.subscriptionEnd) || start;
+    if (start && end) {
+      const cursor = new Date(start);
+      while (cursor <= end) {
+        pushEntry(cursor, {
+          id: `${item.id || item.displayName}_subscription_${toDateKey(cursor)}`,
+          type: 'subscription',
+          name: item.displayName,
+          market: item.market,
+          stage: item.stage,
+          meta: `청약 ${item.subscriptionRange}`,
+        });
+        cursor.setDate(cursor.getDate() + 1);
+      }
+    }
+    if (item.listingDate) {
+      pushEntry(item.listingDate, {
+        id: `${item.id || item.displayName}_listing`,
+        type: 'listing',
+        name: item.displayName,
+        market: item.market,
+        stage: item.stage,
+        meta: '상장',
+      });
+    }
+  }
+
+  for (const row of unlockRows || []) {
+    pushEntry(row.date, {
+      id: row.id,
+      type: 'unlock',
+      name: row.name,
+      market: row.market,
+      stage: '상장후',
+      meta: `${termLabel(row.term)} 보호예수 해제`,
+    });
+  }
+
+  for (const value of rowsByDay.values()) {
+    value.sort((a, b) => String(a.type || '').localeCompare(String(b.type || ''), 'ko') || String(a.name || '').localeCompare(String(b.name || ''), 'ko'));
+  }
+  return rowsByDay;
 }
 
 function choice(...values) {
@@ -400,7 +543,7 @@ async function init() {
     state.feedDate = parseDate(feed.upstreamUpdatedAt || feed.generatedAt);
     state.items = enrichItems(feed.items || []);
     state.unlockRows = buildUnlockRows(state.items);
-    state.timeline = buildTimeline(feed, today);
+    state.timeline = buildUpcomingTimeline(state.items, today);
     fillSelectOptions(state.items);
     renderAll();
     bindControls();
@@ -428,11 +571,9 @@ function setStatus(text, ok) {
 
 function fillSelectOptions(items) {
   const marketSet = new Set(items.map((item) => item.market).filter(Boolean));
-  const stageSet = new Set(items.map((item) => item.stage).filter(Boolean));
-  ['#subscription-market', '#explorer-market'].forEach((selector) => populateSelect(selector, marketSet));
-  populateSelect('#explorer-stage', stageSet);
-  populateShortsSelect(items);
+  ['#subscription-market'].forEach((selector) => populateSelect(selector, marketSet));
 }
+
 
 function populateSelect(selector, values) {
   const select = el(selector);
@@ -468,24 +609,21 @@ function populateShortsSelect(items) {
 
 function bindControls() {
   [
-    '#subscription-query', '#subscription-market', '#subscription-sort',
-    '#listing-query', '#listing-status-filter', '#listing-sort',
-    '#unlock-query', '#unlock-term-filter', '#unlock-sort',
-    '#explorer-query', '#explorer-market', '#explorer-stage', '#explorer-sort',
+    '#subscription-query', '#subscription-market', '#subscription-group',
+    '#listing-query', '#listing-group',
+    '#unlock-query', '#unlock-term-filter',
   ].forEach((selector) => {
     const node = el(selector);
     if (node) node.addEventListener('input', () => {
       if (selector.startsWith('#listing-')) state.ui.listingPage = 1;
       if (selector.startsWith('#subscription-')) state.ui.subscriptionPage = 1;
       if (selector.startsWith('#unlock-')) state.ui.unlockPage = 1;
-      if (selector.startsWith('#explorer-')) state.ui.explorerPage = 1;
       renderAll();
     });
     if (node) node.addEventListener('change', () => {
       if (selector.startsWith('#listing-')) state.ui.listingPage = 1;
       if (selector.startsWith('#subscription-')) state.ui.subscriptionPage = 1;
       if (selector.startsWith('#unlock-')) state.ui.unlockPage = 1;
-      if (selector.startsWith('#explorer-')) state.ui.explorerPage = 1;
       renderAll();
     });
   });
@@ -502,22 +640,8 @@ function bindControls() {
     state.ui.calendarSelectedDate = '';
     renderCalendar();
   });
-
-  const shortsSelect = el('#shorts-item-select');
-  if (shortsSelect) shortsSelect.addEventListener('change', renderShorts);
-  const copyBtn = el('#copy-shorts-btn');
-  if (copyBtn) {
-    copyBtn.addEventListener('click', async () => {
-      try {
-        await navigator.clipboard.writeText(el('#shorts-script').value);
-        copyBtn.textContent = '복사됨';
-        setTimeout(() => { copyBtn.textContent = '복사'; }, 1200);
-      } catch (error) {
-        console.error(error);
-      }
-    });
-  }
 }
+
 
 function renderAll() {
   renderDashboard();
@@ -525,96 +649,68 @@ function renderAll() {
   renderSubscriptions();
   renderListings();
   renderUnlocks();
-  renderExplorer();
-  renderDataHealth();
 }
+
 
 function renderDashboard() {
   const feed = state.feed;
   if (!feed) return;
   const today = state.today;
   const items = state.items;
-  const summary = feed.summary || {};
-  const next30 = computeCountsFromEvents(feed.events || [], today, 30);
   const usdkrw = (feed.marketQuotes || []).find((row) => row.name === 'USD/KRW');
   const marketMood = deriveMarketMood(feed.marketQuotes || []);
   const stats = [
-    { label: '30일 내 청약', value: next30.subscription || 0, sub: '오늘 기준 예정 일정' },
-    { label: '30일 내 상장', value: next30.listing || 0, sub: '오늘 기준 예정 일정' },
+    { label: '30일 내 청약', value: countNearbyItems(items.filter((item) => item.subscriptionStart), 'subscriptionStart', today, 30), sub: '최근 ±30일 일정' },
+    { label: '30일 내 상장', value: countNearbyItems(items.filter((item) => item.listingDate), 'listingDate', today, 30), sub: '최근 ±30일 일정' },
     { label: '환율', value: usdkrw ? formatNumber(usdkrw.last) : '-', sub: usdkrw ? `USD/KRW ${formatRatio(usdkrw.changePct, 2)}` : '환율 데이터 대기' },
     { label: '시장 분위기', value: marketMood.label, sub: marketMood.detail },
   ];
-  el('#summary-stats').innerHTML = stats.map((stat) => `
-    <div class="stat-card">
-      <div class="label">${escapeHtml(stat.label)}</div>
-      <div class="value mono">${typeof stat.value === 'number' ? escapeHtml(formatNumber(stat.value)) : escapeHtml(String(stat.value))}</div>
-      <div class="sub">${escapeHtml(stat.sub)}</div>
-    </div>
-  `).join('');
+  const summaryNode = el('#summary-stats');
+  if (summaryNode) {
+    summaryNode.innerHTML = stats.map((stat) => `
+      <div class="stat-card">
+        <div class="label">${escapeHtml(stat.label)}</div>
+        <div class="value mono">${typeof stat.value === 'number' ? escapeHtml(formatNumber(stat.value)) : escapeHtml(String(stat.value))}</div>
+        <div class="sub">${escapeHtml(stat.sub)}</div>
+      </div>
+    `).join('');
+  }
 
   const quotes = (feed.marketQuotes || []).slice(0, 8);
-  el('#market-grid').innerHTML = quotes.length ? quotes.map((quote) => {
-    const change = numberOrNull(quote.changePct);
-    const changeClass = change === null ? '' : change >= 0 ? 'good' : 'bad';
-    return `
-      <div class="quote-card">
-        <div class="name">${escapeHtml(quote.name)}</div>
-        <div class="price mono">${escapeHtml(formatNumber(quote.last))}</div>
-        <div class="change ${changeClass}">${escapeHtml(formatRatio(change, 2))}</div>
-        <div class="table-sub">${escapeHtml(quote.group || '')}${quote.asOf ? ` · ${escapeHtml(formatDateShort(quote.asOf))}` : ''}</div>
-      </div>
-    `;
-  }).join('') : emptyState('시장 지표가 없습니다.');
-
-  el('#timeline-list').innerHTML = state.timeline.length ? state.timeline.map((event) => {
-    const delta = diffDays(event.dateObj, today);
-    const dday = delta === 0 ? 'D-day' : delta > 0 ? `D-${delta}` : `D+${Math.abs(delta)}`;
-    return `
-      <div class="timeline-item">
-        <div class="timeline-date">${escapeHtml(formatDateShort(event.date))}<br /><span class="table-sub">${escapeHtml(dday)}</span></div>
-        <div class="timeline-content">
-          <div class="timeline-label">${escapeHtml(event.name)}</div>
-          <div class="timeline-sub">${escapeHtml(eventTypeLabel(event.type))} · ${escapeHtml(event.market || '미상')} · ${escapeHtml(event.stage || '')}</div>
+  const marketNode = el('#market-grid');
+  if (marketNode) {
+    marketNode.innerHTML = quotes.length ? quotes.map((quote) => {
+      const change = numberOrNull(quote.changePct);
+      const changeClass = change === null ? '' : change >= 0 ? 'good' : 'bad';
+      return `
+        <div class="quote-card">
+          <div class="name">${escapeHtml(quote.name)}</div>
+          <div class="price mono">${escapeHtml(formatNumber(quote.last))}</div>
+          <div class="change ${changeClass}">${escapeHtml(formatRatio(change, 2))}</div>
+          <div class="table-sub">${escapeHtml(quote.group || '')}${quote.asOf ? ` · ${escapeHtml(formatDateShort(quote.asOf))}` : ''}</div>
         </div>
-      </div>
-    `;
-  }).join('') : emptyState('가까운 일정이 없습니다.');
-
-  let upcomingSubs = items.filter((item) => {
-    if (!item.subscriptionStart) return false;
-    const delta = diffDays(parseDate(item.subscriptionStart), today);
-    return delta !== null && delta >= 0 && delta <= 45;
-  }).sort((a, b) => sortByDateAsc(a, b, 'subscriptionStart')).slice(0, 4);
-  if (!upcomingSubs.length) {
-    upcomingSubs = items.filter((item) => item.subscriptionStart).sort((a, b) => sortByDateAsc(a, b, 'subscriptionStart')).slice(0, 4);
+      `;
+    }).join('') : emptyState('시장 지표가 없습니다.');
   }
-  el('#dashboard-subscription-cards').innerHTML = renderMiniIssueCards(upcomingSubs, 'subscription');
 
-  const upcomingUnlocks = state.unlockRows.filter((row) => {
-    const delta = diffDays(parseDate(row.date), today);
-    return delta !== null && delta >= 0 && delta <= 45;
-  }).slice(0, 4);
-  el('#dashboard-unlock-cards').innerHTML = upcomingUnlocks.length ? upcomingUnlocks.map((row) => `
-    <div class="mini-card">
-      <div class="title">${escapeHtml(termLabel(row.term))} · ${escapeHtml(row.market)}</div>
-      <div class="headline">${escapeHtml(row.name)}</div>
-      <div class="table-sub">${escapeHtml(formatDateShort(row.date))} · 예상 ${escapeHtml(formatNumber(row.shares))}주 · ${escapeHtml(formatRatio(row.ratio))}</div>
-    </div>
-  `).join('') : emptyState('가까운 보호예수 해제가 없습니다.');
-
-  el('#strategy-grid').innerHTML = state.backtest.length ? state.backtest.slice(0, 4).map((row) => `
-    <div class="mini-card">
-      <div class="title">${escapeHtml(row.version || '')} · ${escapeHtml(row.term || '')}</div>
-      <div class="headline">${escapeHtml(row.strategy_name || '')}</div>
-      <div class="table-sub">거래 ${escapeHtml(formatNumber(row.trades))}회 · 승률 ${escapeHtml(formatRatio(row.win_rate))} · 복리 ${escapeHtml(formatRatio(row.compound_ret))}</div>
-    </div>
-  `).join('') : emptyState('전략 요약 파일이 없습니다.');
-
-  const largestMove = [...quotes].sort((a, b) => Math.abs(numberOrNull(b.changePct) || 0) - Math.abs(numberOrNull(a.changePct) || 0))[0];
-  const nearest = state.timeline[0];
-  el('#briefing-line-1').textContent = buildBriefingLine1(quotes, largestMove);
-  el('#briefing-line-2').textContent = buildBriefingLine2(summary, nearest);
+  const timelineNode = el('#timeline-list');
+  if (timelineNode) {
+    timelineNode.innerHTML = state.timeline.length ? state.timeline.slice(0, 8).map((event) => {
+      const delta = diffDays(event.dateObj, today);
+      const dday = delta === 0 ? 'D-day' : delta > 0 ? `D-${delta}` : `D+${Math.abs(delta)}`;
+      return `
+        <div class="timeline-item compact">
+          <div class="timeline-date">${escapeHtml(formatDateShort(event.date))}<br /><span class="table-sub">${escapeHtml(dday)}</span></div>
+          <div class="timeline-content">
+            <div class="timeline-label">${escapeHtml(event.name)}</div>
+            <div class="timeline-sub">${escapeHtml(event.subLabel)} · ${escapeHtml(event.market || '미상')}</div>
+          </div>
+        </div>
+      `;
+    }).join('') : emptyState('가까운 일정이 없습니다.');
+  }
 }
+
 
 function buildBriefingLine1(quotes, largestMove) {
   const kospi = quotes.find((item) => item.name === 'KOSPI');
@@ -653,19 +749,7 @@ function renderCalendar() {
   const monthEnd = new Date(monthStart.getFullYear(), monthStart.getMonth() + 1, 0);
   if (title) title.textContent = `${monthStart.getFullYear()}년 ${monthStart.getMonth() + 1}월`;
 
-  const rowsByDay = new Map();
-  for (const event of (state.feed?.events || [])) {
-    const date = parseDate(event.date);
-    if (!date) continue;
-    if (date.getFullYear() !== monthStart.getFullYear() || date.getMonth() !== monthStart.getMonth()) continue;
-    const key = toDateKey(date);
-    if (!rowsByDay.has(key)) rowsByDay.set(key, []);
-    rowsByDay.get(key).push(event);
-  }
-  for (const value of rowsByDay.values()) {
-    value.sort((a, b) => String(a.type || '').localeCompare(String(b.type || ''), 'ko'));
-  }
-
+  const rowsByDay = buildCalendarEntries(state.items, state.unlockRows, monthStart, monthEnd);
   const weekdays = ['월', '화', '수', '목', '금', '토', '일'];
   const cells = weekdays.map((name) => `<div class="calendar-weekday">${name}</div>`);
   const mondayFirst = (monthStart.getDay() + 6) % 7;
@@ -673,12 +757,11 @@ function renderCalendar() {
 
   const todayKey = toDateKey(state.today);
   let selectedKey = state.ui.calendarSelectedDate || '';
-  if (!selectedKey || !selectedKey.startsWith(`${monthStart.getFullYear()}-${String(monthStart.getMonth() + 1).padStart(2, '0')}`)) {
-    selectedKey = todayKey.startsWith(`${monthStart.getFullYear()}-${String(monthStart.getMonth() + 1).padStart(2, '0')}`) ? todayKey : '';
+  const monthPrefix = `${monthStart.getFullYear()}-${String(monthStart.getMonth() + 1).padStart(2, '0')}`;
+  if (!selectedKey || !selectedKey.startsWith(monthPrefix)) {
+    selectedKey = todayKey.startsWith(monthPrefix) ? todayKey : '';
   }
-  if (!selectedKey) {
-    selectedKey = Array.from(rowsByDay.keys()).sort()[0] || `${monthStart.getFullYear()}-${String(monthStart.getMonth() + 1).padStart(2, '0')}-01`;
-  }
+  if (!selectedKey) selectedKey = Array.from(rowsByDay.keys()).sort()[0] || `${monthPrefix}-01`;
   state.ui.calendarSelectedDate = selectedKey;
 
   for (let day = 1; day <= monthEnd.getDate(); day += 1) {
@@ -693,8 +776,10 @@ function renderCalendar() {
     cells.push(`
       <button type="button" class="${classes.join(' ')}" data-calendar-date="${dateKey}">
         <div class="calendar-day">${day}</div>
-        ${visible.map((event) => `<div class="calendar-event-pill ${escapeHtml(String(event.type || '').replace(/[^a-zA-Z0-9_\-]/g, '_'))}">${escapeHtml(eventTypeLabel(event.type))}</div>`).join('')}
-        ${extra ? `<div class="calendar-more">+${extra}건</div>` : ''}
+        <div class="calendar-agenda">
+          ${visible.map((event) => `<div class="calendar-agenda-item ${escapeHtml(event.type)}"><span class="calendar-agenda-name">${escapeHtml(event.name)}</span></div>`).join('')}
+          ${extra ? `<div class="calendar-more">+${extra}건</div>` : ''}
+        </div>
       </button>
     `);
   }
@@ -718,14 +803,15 @@ function renderCalendar() {
     </div>
     <div class="calendar-detail-grid">
       ${selectedEvents.map((event) => `
-        <div class="calendar-detail-item">
+        <div class="calendar-detail-item ${escapeHtml(event.type)}">
           <div><strong>${escapeHtml(event.name || '')}</strong></div>
-          <div class="meta">${escapeHtml(eventTypeLabel(event.type))} · ${escapeHtml(event.market || '미상')}${event.stage ? ` · ${escapeHtml(event.stage)}` : ''}</div>
+          <div class="meta">${escapeHtml(event.meta || '')}${event.market ? ` · ${escapeHtml(event.market)}` : ''}</div>
         </div>
       `).join('')}
     </div>
   `;
 }
+
 
 function renderMiniIssueCards(items, mode) {
   if (!items.length) return emptyState('표시할 종목이 없습니다.');
@@ -744,17 +830,20 @@ function renderMiniIssueCards(items, mode) {
 }
 
 function renderSubscriptions() {
+  const listNode = el('#subscription-list');
+  const metaNode = el('#subscription-meta');
+  if (!listNode || !metaNode) return;
   const query = (el('#subscription-query')?.value || '').trim().toLowerCase();
   const market = el('#subscription-market')?.value || '';
-  const sort = el('#subscription-sort')?.value || 'soon';
+  const group = el('#subscription-group')?.value || 'upcoming';
   let items = state.items.filter((item) => item.subscriptionStart);
   if (query) items = items.filter((item) => item.searchText.includes(query));
   if (market) items = items.filter((item) => item.market === market);
-  if (sort === 'latest') items.sort((a, b) => sortByDateDesc(a, b, 'subscriptionStart'));
-  else if (sort === 'name') items.sort((a, b) => a.displayName.localeCompare(b.displayName, 'ko'));
-  else items.sort((a, b) => sortByDateAsc(a, b, 'subscriptionStart'));
+  if (group === 'upcoming') items = items.filter((item) => isUpcomingStage(item));
+  else if (group === 'listed') items = items.filter((item) => isListedStage(item));
+  items.sort((a, b) => compareByProximity(a, b, 'subscriptionStart', state.today));
 
-  const perPage = state.ui.subscriptionPerPage || 10;
+  const perPage = state.ui.subscriptionPerPage || 8;
   const total = items.length;
   const pageCount = Math.max(1, Math.ceil(total / perPage));
   const currentPage = Math.min(Math.max(1, state.ui.subscriptionPage || 1), pageCount);
@@ -762,13 +851,14 @@ function renderSubscriptions() {
   const start = (currentPage - 1) * perPage;
   const pageItems = items.slice(start, start + perPage);
 
-  el('#subscription-meta').textContent = `${total}건 · ${currentPage}/${pageCount} 페이지`;
-  el('#subscription-list').innerHTML = pageItems.length ? pageItems.map(renderIssueCard).join('') : emptyState('조건에 맞는 청약 종목이 없습니다.');
+  metaNode.textContent = `${total}건 · ${currentPage}/${pageCount} 페이지`;
+  listNode.innerHTML = pageItems.length ? pageItems.map(renderIssueCard).join('') : emptyState('조건에 맞는 청약 종목이 없습니다.');
   renderPager('subscription-pager', currentPage, pageCount, perPage, total, (page) => {
     state.ui.subscriptionPage = page;
     renderSubscriptions();
   });
 }
+
 
 function renderIssueCard(item) {
   const competition = item.institutionalCompetitionRatio ? formatCompetition(item.institutionalCompetitionRatio) : '-';
@@ -805,18 +895,19 @@ function renderIssueCard(item) {
 }
 
 function renderListings() {
+  const body = el('#listing-table tbody');
+  const metaNode = el('#listing-meta');
+  if (!body || !metaNode) return;
   const query = (el('#listing-query')?.value || '').trim().toLowerCase();
-  const status = el('#listing-status-filter')?.value || '';
-  const sort = el('#listing-sort')?.value || 'recent';
+  const group = el('#listing-group')?.value || 'listed';
   let items = state.items.filter((item) => item.listingDate);
   if (query) items = items.filter((item) => item.searchText.includes(query));
-  if (status === 'listed') items = items.filter((item) => !/상장폐지|청산/.test(item.listingStatus || '') && item.listingStatus !== '상장상태 미확인');
-  if (status === 'delisted') items = items.filter((item) => /상장폐지|청산/.test(item.listingStatus || ''));
-  if (sort === 'oldest') items.sort((a, b) => sortByDateAsc(a, b, 'listingDate'));
-  else if (sort === 'return') items.sort((a, b) => (b.returnPct ?? -999999) - (a.returnPct ?? -999999));
-  else items.sort((a, b) => sortByDateDesc(a, b, 'listingDate'));
+  if (group === 'upcoming') items = items.filter((item) => parseDate(item.listingDate) && diffDays(parseDate(item.listingDate), state.today) >= 0 && !isDelistedStatus(item));
+  else if (group === 'listed') items = items.filter((item) => !isDelistedStatus(item));
+  else if (group === 'delisted') items = items.filter((item) => isDelistedStatus(item));
+  items.sort((a, b) => compareByProximity(a, b, 'listingDate', state.today));
 
-  const perPage = state.ui.listingPerPage || 10;
+  const perPage = state.ui.listingPerPage || 8;
   const total = items.length;
   const pageCount = Math.max(1, Math.ceil(total / perPage));
   const currentPage = Math.min(Math.max(1, state.ui.listingPage || 1), pageCount);
@@ -824,8 +915,8 @@ function renderListings() {
   const start = (currentPage - 1) * perPage;
   const pageItems = items.slice(start, start + perPage);
 
-  el('#listing-meta').textContent = `${total}건 · ${currentPage}/${pageCount} 페이지`;
-  el('#listing-table tbody').innerHTML = pageItems.map((item) => {
+  metaNode.textContent = `${total}건 · ${currentPage}/${pageCount} 페이지`;
+  body.innerHTML = pageItems.map((item) => {
     const returnClass = item.returnPct === null ? '' : item.returnPct >= 0 ? 'good' : 'bad';
     return `
       <tr>
@@ -847,6 +938,7 @@ function renderListings() {
     renderListings();
   });
 }
+
 
 
 function renderPager(containerId, currentPage, pageCount, perPage, totalItems, onChange) {
@@ -876,16 +968,17 @@ function renderPager(containerId, currentPage, pageCount, perPage, totalItems, o
 }
 
 function renderUnlocks() {
+  const body = el('#unlock-table tbody');
+  const metaNode = el('#unlock-meta');
+  if (!body || !metaNode) return;
   const query = (el('#unlock-query')?.value || '').trim().toLowerCase();
   const term = el('#unlock-term-filter')?.value || '';
-  const sort = el('#unlock-sort')?.value || 'soon';
   let rows = [...state.unlockRows];
   if (query) rows = rows.filter((row) => row.searchText.includes(query));
   if (term) rows = rows.filter((row) => row.term === term);
-  if (sort === 'latest') rows.sort((a, b) => sortByDateDesc(a, b, 'date'));
-  else rows.sort((a, b) => sortByDateAsc(a, b, 'date'));
+  rows.sort((a, b) => compareByProximity(a, b, 'date', state.today));
 
-  const perPage = state.ui.unlockPerPage || 10;
+  const perPage = state.ui.unlockPerPage || 8;
   const total = rows.length;
   const pageCount = Math.max(1, Math.ceil(total / perPage));
   const currentPage = Math.min(Math.max(1, state.ui.unlockPage || 1), pageCount);
@@ -893,8 +986,8 @@ function renderUnlocks() {
   const start = (currentPage - 1) * perPage;
   const pageRows = rows.slice(start, start + perPage);
 
-  el('#unlock-meta').textContent = `${total}건 · ${currentPage}/${pageCount} 페이지`;
-  el('#unlock-table tbody').innerHTML = pageRows.map((row) => `
+  metaNode.textContent = `${total}건 · ${currentPage}/${pageCount} 페이지`;
+  body.innerHTML = pageRows.map((row) => `
     <tr>
       <td><span class="table-main">${escapeHtml(row.name)}</span><span class="table-sub">${escapeHtml(row.symbol || '')}</span></td>
       <td>${escapeHtml(row.market)}</td>
@@ -911,79 +1004,21 @@ function renderUnlocks() {
   });
 }
 
+
 function termLabel(term) {
   const map = { '15d': '15일', '1m': '1개월', '3m': '3개월', '6m': '6개월', '1y': '1년' };
   return map[term] || term;
 }
 
 function renderExplorer() {
-  const query = (el('#explorer-query')?.value || '').trim().toLowerCase();
-  const market = el('#explorer-market')?.value || '';
-  const stage = el('#explorer-stage')?.value || '';
-  const sort = el('#explorer-sort')?.value || 'recent-listing';
-  let items = [...state.items];
-  if (query) items = items.filter((item) => item.searchText.includes(query));
-  if (market) items = items.filter((item) => item.market === market);
-  if (stage) items = items.filter((item) => item.stage === stage);
-  if (sort === 'recent-subscription') items.sort((a, b) => sortByDateDesc(a, b, 'subscriptionStart'));
-  else if (sort === 'best-return') items.sort((a, b) => (b.returnPct ?? -999999) - (a.returnPct ?? -999999));
-  else if (sort === 'name') items.sort((a, b) => a.displayName.localeCompare(b.displayName, 'ko'));
-  else items.sort((a, b) => sortByDateDesc(a, b, 'listingDate'));
-
-  const perPage = state.ui.explorerPerPage || 10;
-  const total = items.length;
-  const pageCount = Math.max(1, Math.ceil(total / perPage));
-  const currentPage = Math.min(Math.max(1, state.ui.explorerPage || 1), pageCount);
-  state.ui.explorerPage = currentPage;
-  const start = (currentPage - 1) * perPage;
-  const pageItems = items.slice(start, start + perPage);
-
-  el('#explorer-meta').textContent = `${total}건 · ${currentPage}/${pageCount} 페이지`;
-  el('#explorer-table tbody').innerHTML = pageItems.map((item) => {
-    const returnClass = item.returnPct === null ? '' : item.returnPct >= 0 ? 'good' : 'bad';
-    return `
-      <tr>
-        <td><span class="table-main">${escapeHtml(item.displayName)}</span><span class="table-sub">${escapeHtml(item.symbol || '')} · ${escapeHtml(item.sector || '')}</span></td>
-        <td>${escapeHtml(item.market)}</td>
-        <td>${escapeHtml(item.stage)}</td>
-        <td class="mono">${escapeHtml(item.subscriptionRange)}</td>
-        <td class="mono">${escapeHtml(formatDateShort(item.listingDate))}</td>
-        <td class="mono">${escapeHtml(formatPrice(item.offerPrice))}</td>
-        <td class="mono">${escapeHtml(formatPrice(item.currentPrice))}</td>
-        <td class="mono"><span class="value ${returnClass}">${escapeHtml(formatRatio(item.returnPct))}</span></td>
-        <td>${escapeHtml(item.underwriterText)}</td>
-      </tr>
-    `;
-  }).join('') || `<tr><td colspan="9">조건에 맞는 종목이 없습니다.</td></tr>`;
-  renderPager('explorer-pager', currentPage, pageCount, perPage, total, (page) => {
-    state.ui.explorerPage = page;
-    renderExplorer();
-  });
+  if (!el('#explorer-table')) return;
 }
+
 
 function renderShorts() {
-  const select = el('#shorts-item-select');
-  if (!select || !state.items.length) return;
-  const item = state.items.find((row) => row.id === select.value) || state.items.find((row) => row.subscriptionStart) || state.items[0];
-  if (!item) return;
-  const facts = [
-    ['시장', item.market],
-    ['청약일', item.subscriptionRange],
-    ['수요예측', item.forecastText],
-    ['주관사', item.underwriterText],
-    ['희망가', item.priceBandText],
-    ['공모가', formatPrice(item.offerPrice)],
-    ['기관경쟁률', formatCompetition(item.institutionalCompetitionRatio)],
-    ['확약', formatRatio(item.lockupCommitmentRatio)],
-  ];
-  el('#shorts-facts').innerHTML = facts.map(([key, value]) => `
-    <div class="fact-card">
-      <div class="key">${escapeHtml(key)}</div>
-      <div class="value">${escapeHtml(value)}</div>
-    </div>
-  `).join('');
-  el('#shorts-script').value = buildShortsScript(item);
+  return;
 }
+
 
 function buildShortsScript(item) {
   const marketTone = buildMarketTone();
@@ -1025,63 +1060,9 @@ function buildMarketTone() {
 }
 
 function renderDataHealth() {
-  const feed = state.feed;
-  const health = state.health || {};
-  if (!feed) return;
-
-  const kindZeroPattern = /^kind_(listing|public_offering|pubprice)_live cache rows=0$/i;
-  const warnings = [...(feed.warnings || []), ...(health.feedWarnings || [])]
-    .map((warning) => String(warning || '').trim())
-    .filter(Boolean);
-  const hiddenKindWarnings = warnings.filter((warning) => kindZeroPattern.test(warning));
-  const uniqueWarnings = Array.from(new Set(warnings.filter((warning) => !kindZeroPattern.test(warning))));
-  if (hiddenKindWarnings.length) {
-    uniqueWarnings.push('KIND 보조 캐시 일부는 비어 있지만 배포본은 공식 API와 기존 번들을 우선 사용합니다.');
-  }
-  el('#warning-list').innerHTML = uniqueWarnings.length
-    ? uniqueWarnings.map((warning) => `<div class="warning-item ${/우선 사용|없습니다/.test(warning) ? 'ok' : ''}">${escapeHtml(warning)}</div>`).join('')
-    : '<div class="warning-item ok">현재 경고가 없습니다.</div>';
-
-  const cacheInventory = Array.isArray(feed.cacheInventory) ? feed.cacheInventory : [];
-  const cacheEntries = cacheInventory.filter((entry) => {
-    const name = String(entry?.name || '');
-    const rows = Number(entry?.rows);
-    return !(/^kind_(listing|public_offering|pubprice)_live$/i.test(name) && (!Number.isFinite(rows) || rows <= 0));
-  });
-  el('#cache-grid').innerHTML = cacheEntries.length ? cacheEntries.map((entry) => {
-    const key = entry?.name || '-';
-    const rows = entry?.rows ?? entry?.rowCount ?? '-';
-    const updated = entry?.savedAt || entry?.saved_at || entry?.updatedAt || entry?.asOf || '-';
-    const source = entry?.source || '';
-    const notes = entry?.notes || '';
-    return `
-      <div class="cache-card">
-        <div class="key">${escapeHtml(String(key))}</div>
-        <div class="value mono">${escapeHtml(String(rows))} rows</div>
-        <div class="table-sub">${escapeHtml(String(updated))}${source ? ` · ${escapeHtml(String(source))}` : ''}</div>
-        ${notes ? `<div class="table-sub">${escapeHtml(String(notes))}</div>` : ''}
-      </div>
-    `;
-  }).join('') : emptyState('캐시 인벤토리가 없습니다.');
-
-  const sourceStatus = Array.isArray(feed.sourceStatus) ? feed.sourceStatus : [];
-  const displaySources = sourceStatus.filter((row) => {
-    const source = String(row?.source || row?.name || '');
-    const detail = String(row?.detail || '');
-    if (/kind/i.test(source) && /0 rows|empty|no rows/i.test(detail)) return false;
-    return true;
-  });
-  el('#source-status-list').innerHTML = displaySources.length ? displaySources.map((row) => {
-    const ok = row.ok !== false;
-    return `
-      <div class="source-card">
-        <div class="title">${escapeHtml(row.name || row.source || 'source')}</div>
-        <div class="detail">${escapeHtml(row.detail || row.status || '-')}</div>
-        <div class="table-sub ${ok ? 'badge good' : 'badge bad'}">${ok ? '정상' : '실패'}</div>
-      </div>
-    `;
-  }).join('') : emptyState('소스 상태 정보가 없습니다.');
+  if (!el('#warning-list')) return;
 }
+
 
 function emptyState(text) {
   return `<div class="empty-state">${escapeHtml(text)}</div>`;
