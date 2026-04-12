@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>공모주 알리미 웹</title>
     <meta name="description" content="공모주 청약, 상장, 보호예수 해제 일정을 정적 웹으로 보는 공모주 알리미" />
-    <link rel="stylesheet" href="./assets/app.css?v=20260412r5" />
+    <link rel="stylesheet" href="./assets/app.css?v=20260412r8" />
   </head>
   <body>
     <div class="app-shell">
@@ -83,7 +83,7 @@
             </div>
             <div class="inline-meta" id="subscription-meta"></div>
           </div>
-          <div class="controls card controls-card controls-card-subscription">
+          <div class="controls card controls-card controls-card--three">
             <label>
               <span>검색</span>
               <input type="search" id="subscription-query" placeholder="종목명, 주관사, 종목코드" />
@@ -96,9 +96,9 @@
             </label>
             <label>
               <span>구분</span>
-              <select id="subscription-group">
+              <select id="subscription-stage-filter">
                 <option value="upcoming" selected>청약 예정</option>
-                <option value="listed">상장 후</option>
+                <option value="after">상장 후</option>
                 <option value="all">전체</option>
               </select>
             </label>
@@ -115,18 +115,24 @@
             </div>
             <div class="inline-meta" id="listing-meta"></div>
           </div>
-          <div class="controls card controls-card controls-card-listing">
+          <div class="controls card controls-card controls-card--three">
             <label>
               <span>검색</span>
               <input type="search" id="listing-query" placeholder="종목명, 종목코드, 시장" />
             </label>
             <label>
-              <span>구분</span>
-              <select id="listing-group">
+              <span>상태</span>
+              <select id="listing-status-filter">
+                <option value="after" selected>상장 후</option>
                 <option value="upcoming">상장 예정</option>
-                <option value="listed" selected>상장 후</option>
-                <option value="delisted">상장폐지</option>
+                <option value="delisted">상장폐지/청산</option>
                 <option value="all">전체</option>
+              </select>
+            </label>
+            <label>
+              <span>시장</span>
+              <select id="listing-market-filter">
+                <option value="">전체</option>
               </select>
             </label>
           </div>
@@ -159,7 +165,7 @@
             </div>
             <div class="inline-meta" id="unlock-meta"></div>
           </div>
-          <div class="controls card controls-card controls-card-unlock">
+          <div class="controls card controls-card controls-card--two">
             <label>
               <span>검색</span>
               <input type="search" id="unlock-query" placeholder="종목명, 종목코드" />
@@ -203,6 +209,6 @@
         healthPaths: ["./data/mobile-feed-verify.json"]
       };
     </script>
-    <script src="./assets/app.js?v=20260412r5"></script>
+    <script src="./assets/app.js?v=20260412r8"></script>
   </body>
 </html>
