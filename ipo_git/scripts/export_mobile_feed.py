@@ -866,8 +866,11 @@ def main() -> None:
     parser = argparse.ArgumentParser(description='기존 공모주 저장소를 모바일 앱용 JSON 피드로 변환합니다.')
     parser.add_argument('--repo', default='.', help='저장소 루트 경로')
     parser.add_argument('--output', default='', help='생성할 JSON 파일 경로')
-    parser.add_argument('--site-dir', default='', help='GitHub Pages 배포용 정적 사이트 출력 폴더')
-    parser.add_argument('--site-base-url', default='https://example.github.io/repo', help='배포될 사이트의 기준 URL')
+    parser.add_argument('--output-dir', default='', help='mobile-feed.json/health.json/index.html 을 쓸 출력 디렉터리')
+    parser.add_argument('--site-dir', default='', help='이전 옵션 호환용 별칭(output-dir와 동일)')
+    parser.add_argument('--public-base-url', default='', help='앱이 우선 읽을 공개 기본 주소(jsDelivr 등)')
+    parser.add_argument('--fallback-base-url', default='', help='대체 공개 주소(raw.githubusercontent.com 등)')
+    parser.add_argument('--site-base-url', default='', help='이전 옵션 호환용 별칭(public-base-url와 동일)')
     parser.add_argument('--prefer-live', action='store_true', help='가능하면 번들 구성 시 live source도 즉시 시도합니다.')
     parser.add_argument('--no-cache', action='store_true', help='번들 구성 시 캐시를 사용하지 않습니다.')
     args = parser.parse_args()
@@ -875,13 +878,16 @@ def main() -> None:
     repo = Path(args.repo).resolve()
     feed = build_feed(repo, prefer_live=args.prefer_live, use_cache=not args.no_cache)
 
+    output_dir = args.output_dir or args.site_dir
+    public_base_url = args.public_base_url or args.site_base_url or 'https://example.github.io/repo'
+
     if args.output:
         write_json(Path(args.output).resolve(), feed)
         print(f'Wrote {Path(args.output).resolve()}')
-    if args.site_dir:
-        write_site(Path(args.site_dir).resolve(), feed, args.site_base_url)
-        print(f'Wrote site {Path(args.site_dir).resolve()}')
-    if not args.output and not args.site_dir:
+    if output_dir:
+        write_site(Path(output_dir).resolve(), feed, public_base_url)
+        print(f'Wrote site {Path(output_dir).resolve()}')
+    if not args.output and not output_dir:
         print(json.dumps(feed, ensure_ascii=False, indent=2))
 
 

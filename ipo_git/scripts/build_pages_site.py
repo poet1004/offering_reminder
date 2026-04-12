@@ -82,6 +82,11 @@ def build_site(repo: Path, output_dir: Path, feed_path: Path | None = None, cnam
     write_json(data_dir / 'mobile-feed-verify.json', verify)
     write_json(data_dir / 'preflight-report.json', preflight)
     write_json(data_dir / 'backtest-summary.json', backtest_summary)
+    try:
+        feed_source_path = str(actual_feed_path.relative_to(repo))
+    except ValueError:
+        feed_source_path = str(actual_feed_path)
+
     write_json(
         data_dir / 'site-meta.json',
         {
@@ -90,7 +95,7 @@ def build_site(repo: Path, output_dir: Path, feed_path: Path | None = None, cnam
             'itemCount': (feed.get('summary') or {}).get('itemCount'),
             'eventCount': (feed.get('summary') or {}).get('eventCount'),
             'schemaVersion': feed.get('schemaVersion'),
-            'feedSourcePath': str(actual_feed_path.relative_to(repo)),
+            'feedSourcePath': feed_source_path,
         },
     )
 

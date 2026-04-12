@@ -1,4 +1,4 @@
-name: mobile-feed-cdn
+name: mobile-feed-pages
 
 on:
   workflow_dispatch:
@@ -8,19 +8,22 @@ on:
     branches: [main]
     paths:
       - '.github/workflows/mobile-feed-pages.yml'
+      - '.github/workflows/github-pages-static.yml'
       - 'ipo_git/data/cache/**'
       - 'ipo_git/data/bootstrap_cache/**'
       - 'ipo_git/data/sample_ipo_events.csv'
       - 'ipo_git/data/sample_market_snapshot.csv'
       - 'ipo_git/scripts/export_mobile_feed.py'
       - 'ipo_git/scripts/refresh_market_snapshot.py'
+      - 'ipo_git/scripts/build_pages_site.py'
+      - 'ipo_git/static_pages/**'
       - 'ipo_git/src/services/market_service.py'
 
 permissions:
   contents: write
 
 concurrency:
-  group: mobile-feed-cdn
+  group: mobile-feed-pages
   cancel-in-progress: true
 
 jobs:
@@ -72,10 +75,10 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add mobile-feed ipo_git/data/cache || true
+          git add mobile-feed ipo_git/data/cache/*.csv ipo_git/data/cache/*.json || true
           if git diff --cached --quiet; then
-            echo "No feed changes to commit."
+            echo "No changes to commit"
             exit 0
           fi
-          git commit -m "chore: refresh mobile feed [skip ci]"
-          git push origin HEAD:${GITHUB_REF_NAME}
+          git commit -m "chore: refresh mobile feed"
+          git push
