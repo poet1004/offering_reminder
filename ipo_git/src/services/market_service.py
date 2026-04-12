@@ -16,7 +16,7 @@ except Exception:  # pragma: no cover - optional runtime dependency
 
 from src.services.kis_client import KISClient
 from src.services.live_cache import LiveCacheStore
-from src.utils import data_dir, normalize_symbol_text, safe_float, today_kst
+from src.utils import data_dir, safe_float, today_kst
 
 
 MARKET_SPECS: list[dict[str, Any]] = [
@@ -268,47 +268,26 @@ class MarketService:
         return report
 
     def get_stock_signal_from_kis(self, symbol: str, days: int = 130) -> dict[str, Any] | None:
-        code = normalize_symbol_text(symbol)
+        if self.kis_client is None:
+            return None
         end = pd.Timestamp.now(tz="Asia/Seoul").tz_localize(None).normalize()
         start = end - pd.Timedelta(days=days)
-        from src.services.calculations import latest_signal_from_history
+        try:
+            history = self.kis_client.get_stock_history_chunked(
+                symbol=symbol,
+                start_date=start.strftime("%Y%m%d"),
+                end_date=end.strftime("%Y%m%d"),
+                market_div="J",
+            )
+            if history.empty:
+                return None
+            from src.services.calculations import latest_signal_from_history
 
-        if code and self.kis_client is not None:
-            try:
-                history = self.kis_client.get_stock_history_chunked(
-                    symbol=code,
-                    start_date=start.strftime("%Y%m%d"),
-                    end_date=end.strftime("%Y%m%d"),
-                    market_div="J",
-                )
-                if not history.empty:
-                    result = latest_signal_from_history(history)
-                    result["history"] = history
-                    result["provider"] = "KIS"
-                    return result
-            except Exception:
-                pass
-
-        if code and pykrx_stock is not None:
-            try:
-                history = pykrx_stock.get_market_ohlcv_by_date(start.strftime("%Y%m%d"), end.strftime("%Y%m%d"), code)
-                if isinstance(history, pd.DataFrame) and not history.empty:
-                    history = history.reset_index()
-                    date_col = next((c for c in history.columns if str(c) in {"날짜", "date", "Date"}), history.columns[0])
-                    close_col = next((c for c in history.columns if str(c) in {"종가", "close", "Close"}), None)
-                    if close_col is not None:
-                        normalized = pd.DataFrame({
-                            "date": pd.to_datetime(history[date_col], errors="coerce"),
-                            "close": pd.to_numeric(history[close_col].astype(str).str.replace(",", "", regex=False), errors="coerce"),
-                        }).dropna(subset=["date", "close"]).sort_values("date").reset_index(drop=True)
-                        if not normalized.empty:
-                            result = latest_signal_from_history(normalized)
-                            result["history"] = normalized
-                            result["provider"] = "pykrx"
-                            return result
-            except Exception:
-                pass
-        return None
+            result = latest_signal_from_history(history)
+            result["history"] = history
+            return result
+        except Exception:
+            return None
 
     def market_mood(self, snapshot: pd.DataFrame) -> dict[str, Any]:
         if snapshot.empty:

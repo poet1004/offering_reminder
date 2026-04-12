@@ -37,7 +37,7 @@ from src.services.ipo_scrapers import (
 )
 from src.services.kis_client import KISClient
 from src.services.live_cache import LiveCacheStore
-from src.utils import STANDARD_ISSUE_COLUMNS, clean_issue_frame, coalesce, normalize_name_key, normalize_symbol_text, parse_date_columns, standardize_issue_frame, today_kst
+from src.utils import STANDARD_ISSUE_COLUMNS, clean_issue_frame, coalesce, normalize_name_key, parse_date_columns, standardize_issue_frame, today_kst
 
 
 @dataclass
@@ -65,22 +65,6 @@ class IPODataHub:
         self.kis_client = kis_client
         self.dart_client = dart_client
 
-    @staticmethod
-    def _require_non_empty_frame(df: pd.DataFrame | None, label: str) -> pd.DataFrame:
-        if df is None or df.empty:
-            raise RuntimeError(f"{label} returned 0 rows")
-        return df
-
-    def _write_live_cache_frame(self, name: str, df: pd.DataFrame | None, *, source: str, notes: str, saved_at: pd.Timestamp | None = None) -> pd.DataFrame:
-        frame = self._require_non_empty_frame(df, name).copy()
-        stamp = saved_at or today_kst()
-        self.cache.write_frame(
-            name,
-            frame,
-            meta={"source": source, "notes": notes, "row_count": int(len(frame)), "saved_at": stamp.isoformat()},
-        )
-        return frame
-
     def refresh_live_cache(self, fetch_kind: bool = True, fetch_38: bool = True) -> dict[str, Any]:
         report: dict[str, Any] = {
             "kind_listing": None,
@@ -98,47 +82,43 @@ class IPODataHub:
         if fetch_kind:
             try:
                 raw_kind = fetch_kind_listing_table()
-                std_kind = self._write_live_cache_frame(
+                std_kind = standardize_kind_listing_table(raw_kind, today=now)
+                self.cache.write_frame(
                     "kind_listing_live",
-                    standardize_kind_listing_table(raw_kind, today=now),
-                    source="KIND",
-                    notes=KIND_LISTING_URL,
-                    saved_at=now,
+                    std_kind,
+                    meta={"source": "KIND", "notes": KIND_LISTING_URL, "row_count": int(len(std_kind)), "saved_at": now.isoformat()},
                 )
                 report["kind_listing"] = {"rows": int(len(std_kind)), "url": KIND_LISTING_URL}
             except Exception as exc:
                 report["errors"].append(f"KIND listing refresh failed: {exc}")
             try:
                 raw_public = fetch_kind_public_offering_table()
-                std_public = self._write_live_cache_frame(
+                std_public = standardize_kind_public_offering_table(raw_public, today=now)
+                self.cache.write_frame(
                     "kind_public_offering_live",
-                    standardize_kind_public_offering_table(raw_public, today=now),
-                    source="KIND",
-                    notes=KIND_PUBLIC_OFFER_URL,
-                    saved_at=now,
+                    std_public,
+                    meta={"source": "KIND", "notes": KIND_PUBLIC_OFFER_URL, "row_count": int(len(std_public)), "saved_at": now.isoformat()},
                 )
                 report["kind_public"] = {"rows": int(len(std_public)), "url": KIND_PUBLIC_OFFER_URL}
             except Exception as exc:
                 report["errors"].append(f"KIND public-offering refresh failed: {exc}")
             try:
                 raw_pubprice = fetch_kind_pubprice_table()
-                std_pubprice = self._write_live_cache_frame(
+                std_pubprice = standardize_kind_pubprice_table(raw_pubprice, today=now)
+                self.cache.write_frame(
                     "kind_pubprice_live",
-                    standardize_kind_pubprice_table(raw_pubprice, today=now),
-                    source="KIND",
-                    notes=KIND_PUB_PRICE_URL,
-                    saved_at=now,
+                    std_pubprice,
+                    meta={"source": "KIND", "notes": KIND_PUB_PRICE_URL, "row_count": int(len(std_pubprice)), "saved_at": now.isoformat()},
                 )
                 report["kind_pubprice"] = {"rows": int(len(std_pubprice)), "url": KIND_PUB_PRICE_URL}
             except Exception as exc:
                 report["errors"].append(f"KIND pubprice refresh failed: {exc}")
             try:
-                std_corp = self._write_live_cache_frame(
+                std_corp = fetch_kind_corp_download_table()
+                self.cache.write_frame(
                     "kind_corp_download_live",
-                    fetch_kind_corp_download_table(),
-                    source="KIND",
-                    notes="corpList download",
-                    saved_at=now,
+                    std_corp,
+                    meta={"source": "KIND", "notes": "corpList download", "row_count": int(len(std_corp)), "saved_at": now.isoformat()},
                 )
                 report["kind_corp_download"] = {"rows": int(len(std_corp)), "url": "corpList download"}
             except Exception as exc:
@@ -146,56 +126,51 @@ class IPODataHub:
         if fetch_38:
             try:
                 raw_38 = fetch_38_schedule(include_detail_links=True)
-                std_38 = self._write_live_cache_frame(
+                std_38 = standardize_38_schedule_table(raw_38, today=now, fetch_details=True)
+                self.cache.write_frame(
                     "schedule_38_live",
-                    standardize_38_schedule_table(raw_38, today=now, fetch_details=True),
-                    source="38",
-                    notes=THIRTYEIGHT_SCHEDULE_URL,
-                    saved_at=now,
+                    std_38,
+                    meta={"source": "38", "notes": THIRTYEIGHT_SCHEDULE_URL, "row_count": int(len(std_38)), "saved_at": now.isoformat()},
                 )
                 report["38"] = {"rows": int(len(std_38)), "url": THIRTYEIGHT_SCHEDULE_URL}
             except Exception as exc:
                 report["errors"].append(f"38 refresh failed: {exc}")
             try:
-                demand_38 = self._write_live_cache_frame(
+                demand_38 = fetch_38_demand_results()
+                self.cache.write_frame(
                     "schedule_38_demand_live",
-                    fetch_38_demand_results(),
-                    source="38",
-                    notes=THIRTYEIGHT_DEMAND_RESULT_URL,
-                    saved_at=now,
+                    demand_38,
+                    meta={"source": "38", "notes": THIRTYEIGHT_DEMAND_RESULT_URL, "row_count": int(len(demand_38)), "saved_at": now.isoformat()},
                 )
                 report["38_demand"] = {"rows": int(len(demand_38)), "url": THIRTYEIGHT_DEMAND_RESULT_URL}
             except Exception as exc:
                 report["errors"].append(f"38 demand-result refresh failed: {exc}")
             try:
-                new_listing_38 = self._write_live_cache_frame(
+                new_listing_38 = standardize_38_new_listing_table(fetch_38_new_listing_table())
+                self.cache.write_frame(
                     "schedule_38_new_listing_live",
-                    standardize_38_new_listing_table(fetch_38_new_listing_table()),
-                    source="38",
-                    notes=THIRTYEIGHT_NEW_LISTING_URL,
-                    saved_at=now,
+                    new_listing_38,
+                    meta={"source": "38", "notes": THIRTYEIGHT_NEW_LISTING_URL, "row_count": int(len(new_listing_38)), "saved_at": now.isoformat()},
                 )
                 report["38_new_listing"] = {"rows": int(len(new_listing_38)), "url": THIRTYEIGHT_NEW_LISTING_URL}
             except Exception as exc:
                 report["errors"].append(f"38 new-listing refresh failed: {exc}")
             try:
-                ir_38 = self._write_live_cache_frame(
+                ir_38 = fetch_38_ir_links()
+                self.cache.write_frame(
                     "ir_38_live",
-                    fetch_38_ir_links(),
-                    source="38",
-                    notes=THIRTYEIGHT_IR_DATA_URL,
-                    saved_at=now,
+                    ir_38,
+                    meta={"source": "38", "notes": THIRTYEIGHT_IR_DATA_URL, "row_count": int(len(ir_38)), "saved_at": now.isoformat()},
                 )
                 report["38_ir"] = {"rows": int(len(ir_38)), "url": THIRTYEIGHT_IR_DATA_URL}
             except Exception as exc:
                 report["errors"].append(f"38 IR refresh failed: {exc}")
             try:
-                seibro_release = self._write_live_cache_frame(
+                seibro_release = fetch_seibro_release_schedule()
+                self.cache.write_frame(
                     "seibro_release_live",
-                    fetch_seibro_release_schedule(),
-                    source="Seibro",
-                    notes=SEIBRO_RELEASE_URL,
-                    saved_at=now,
+                    seibro_release,
+                    meta={"source": "Seibro", "notes": SEIBRO_RELEASE_URL, "row_count": int(len(seibro_release)), "saved_at": now.isoformat()},
                 )
                 report["seibro_release"] = {"rows": int(len(seibro_release)), "url": SEIBRO_RELEASE_URL}
             except Exception as exc:
@@ -240,12 +215,6 @@ class IPODataHub:
         local_kind = pd.DataFrame(columns=STANDARD_ISSUE_COLUMNS)
         seed_38 = pd.DataFrame(columns=STANDARD_ISSUE_COLUMNS)
         dart_enriched = pd.DataFrame(columns=STANDARD_ISSUE_COLUMNS)
-        official_name_map = pd.DataFrame()
-        official_market_codes = pd.DataFrame()
-        official_listing = pd.DataFrame()
-        official_issue_overlay = pd.DataFrame(columns=STANDARD_ISSUE_COLUMNS)
-        official_corp_basic = pd.DataFrame()
-        official_shareholder = pd.DataFrame()
         source_rows: list[dict[str, Any]] = []
 
         if local_kind_export_path:
@@ -311,132 +280,103 @@ class IPODataHub:
                 elif cache_name == "kind_corp_download_live":
                     live_kind_corp = clean_issue_frame(cached)
 
-
-            official_cache_specs = [
-                ("official_ksd_name_lookup_live", "KSD-cache-name-map", False),
-                ("official_ksd_market_codes_live", "KSD-cache-market-codes", False),
-                ("official_ksd_listing_info_live", "KSD-cache-listing-info", False),
-                ("official_issue_overlay_live", "KSD-cache-issue-overlay", True),
-                ("official_ksd_corp_basic_live", "KSD-cache-corp-basic", False),
-                ("official_ksd_shareholder_summary_live", "KSD-cache-shareholder", False),
-            ]
-            for cache_name, source_name, issue_like in official_cache_specs:
-                cached = self.cache.read_frame(cache_name)
-                if cached.empty:
-                    continue
-                meta = self.cache.read_meta(cache_name)
-                raw_tables[cache_name] = cached
-                source_rows.append({"source": source_name, "ok": True, "rows": int(len(cached)), "detail": meta.get("saved_at", "")})
-                if cache_name == "official_ksd_name_lookup_live":
-                    official_name_map = parse_date_columns(cached.copy())
-                elif cache_name == "official_ksd_market_codes_live":
-                    official_market_codes = parse_date_columns(cached.copy())
-                elif cache_name == "official_ksd_listing_info_live":
-                    official_listing = parse_date_columns(cached.copy())
-                elif cache_name == "official_issue_overlay_live":
-                    official_issue_overlay = clean_issue_frame(cached)
-                elif cache_name == "official_ksd_corp_basic_live":
-                    official_corp_basic = parse_date_columns(cached.copy())
-                elif cache_name == "official_ksd_shareholder_summary_live":
-                    official_shareholder = parse_date_columns(cached.copy())
-
         if prefer_live:
             try:
-                live_kind = self._write_live_cache_frame(
-                    "kind_listing_live",
-                    clean_issue_frame(standardize_kind_listing_table(fetch_kind_listing_table())),
-                    source="KIND",
-                    notes=KIND_LISTING_URL,
-                )
+                live_kind = clean_issue_frame(standardize_kind_listing_table(fetch_kind_listing_table()))
                 raw_tables["live_kind"] = live_kind
+                self.cache.write_frame(
+                    "kind_listing_live",
+                    live_kind,
+                    meta={"source": "KIND", "notes": KIND_LISTING_URL, "row_count": int(len(live_kind))},
+                )
                 source_rows.append({"source": "KIND-live-listing", "ok": True, "rows": int(len(live_kind)), "detail": KIND_LISTING_URL})
             except Exception as exc:
                 source_rows.append({"source": "KIND-live-listing", "ok": False, "rows": 0, "detail": str(exc)})
             try:
-                live_kind_public = self._write_live_cache_frame(
-                    "kind_public_offering_live",
-                    clean_issue_frame(standardize_kind_public_offering_table(fetch_kind_public_offering_table())),
-                    source="KIND",
-                    notes=KIND_PUBLIC_OFFER_URL,
-                )
+                live_kind_public = clean_issue_frame(standardize_kind_public_offering_table(fetch_kind_public_offering_table()))
                 raw_tables["live_kind_public"] = live_kind_public
+                self.cache.write_frame(
+                    "kind_public_offering_live",
+                    live_kind_public,
+                    meta={"source": "KIND", "notes": KIND_PUBLIC_OFFER_URL, "row_count": int(len(live_kind_public))},
+                )
                 source_rows.append({"source": "KIND-live-public", "ok": True, "rows": int(len(live_kind_public)), "detail": KIND_PUBLIC_OFFER_URL})
             except Exception as exc:
                 source_rows.append({"source": "KIND-live-public", "ok": False, "rows": 0, "detail": str(exc)})
             try:
-                live_kind_pubprice = self._write_live_cache_frame(
-                    "kind_pubprice_live",
-                    clean_issue_frame(standardize_kind_pubprice_table(fetch_kind_pubprice_table())),
-                    source="KIND",
-                    notes=KIND_PUB_PRICE_URL,
-                )
+                live_kind_pubprice = clean_issue_frame(standardize_kind_pubprice_table(fetch_kind_pubprice_table()))
                 raw_tables["live_kind_pubprice"] = live_kind_pubprice
+                self.cache.write_frame(
+                    "kind_pubprice_live",
+                    live_kind_pubprice,
+                    meta={"source": "KIND", "notes": KIND_PUB_PRICE_URL, "row_count": int(len(live_kind_pubprice))},
+                )
                 source_rows.append({"source": "KIND-live-pubprice", "ok": True, "rows": int(len(live_kind_pubprice)), "detail": KIND_PUB_PRICE_URL})
             except Exception as exc:
                 source_rows.append({"source": "KIND-live-pubprice", "ok": False, "rows": 0, "detail": str(exc)})
             try:
-                live_38 = self._write_live_cache_frame(
-                    "schedule_38_live",
-                    clean_issue_frame(standardize_38_schedule_table(fetch_38_schedule(include_detail_links=True), fetch_details=True)),
-                    source="38",
-                    notes=THIRTYEIGHT_SCHEDULE_URL,
-                )
+                live_38 = clean_issue_frame(standardize_38_schedule_table(fetch_38_schedule(include_detail_links=True), fetch_details=True))
                 raw_tables["live_38"] = live_38
+                self.cache.write_frame(
+                    "schedule_38_live",
+                    live_38,
+                    meta={"source": "38", "notes": THIRTYEIGHT_SCHEDULE_URL, "row_count": int(len(live_38))},
+                )
                 source_rows.append({"source": "38-live", "ok": True, "rows": int(len(live_38)), "detail": THIRTYEIGHT_SCHEDULE_URL})
             except Exception as exc:
                 source_rows.append({"source": "38-live", "ok": False, "rows": 0, "detail": str(exc)})
             try:
-                live_38_demand = self._write_live_cache_frame(
-                    "schedule_38_demand_live",
-                    clean_issue_frame(fetch_38_demand_results()),
-                    source="38",
-                    notes=THIRTYEIGHT_DEMAND_RESULT_URL,
-                )
+                live_38_demand = clean_issue_frame(fetch_38_demand_results())
                 raw_tables["live_38_demand"] = live_38_demand
+                self.cache.write_frame(
+                    "schedule_38_demand_live",
+                    live_38_demand,
+                    meta={"source": "38", "notes": THIRTYEIGHT_DEMAND_RESULT_URL, "row_count": int(len(live_38_demand))},
+                )
                 source_rows.append({"source": "38-live-demand", "ok": True, "rows": int(len(live_38_demand)), "detail": THIRTYEIGHT_DEMAND_RESULT_URL})
             except Exception as exc:
                 source_rows.append({"source": "38-live-demand", "ok": False, "rows": 0, "detail": str(exc)})
             try:
-                live_38_new_listing = self._write_live_cache_frame(
-                    "schedule_38_new_listing_live",
-                    clean_issue_frame(standardize_38_new_listing_table(fetch_38_new_listing_table())),
-                    source="38",
-                    notes=THIRTYEIGHT_NEW_LISTING_URL,
-                )
+                live_38_new_listing = clean_issue_frame(standardize_38_new_listing_table(fetch_38_new_listing_table()))
                 raw_tables["live_38_new_listing"] = live_38_new_listing
+                self.cache.write_frame(
+                    "schedule_38_new_listing_live",
+                    live_38_new_listing,
+                    meta={"source": "38", "notes": THIRTYEIGHT_NEW_LISTING_URL, "row_count": int(len(live_38_new_listing))},
+                )
                 source_rows.append({"source": "38-live-new-listing", "ok": True, "rows": int(len(live_38_new_listing)), "detail": THIRTYEIGHT_NEW_LISTING_URL})
             except Exception as exc:
                 source_rows.append({"source": "38-live-new-listing", "ok": False, "rows": 0, "detail": str(exc)})
             try:
-                live_38_ir = self._write_live_cache_frame(
-                    "ir_38_live",
-                    clean_issue_frame(fetch_38_ir_links()),
-                    source="38",
-                    notes=THIRTYEIGHT_IR_DATA_URL,
-                )
+                live_38_ir = clean_issue_frame(fetch_38_ir_links())
                 raw_tables["live_38_ir"] = live_38_ir
+                self.cache.write_frame(
+                    "ir_38_live",
+                    live_38_ir,
+                    meta={"source": "38", "notes": THIRTYEIGHT_IR_DATA_URL, "row_count": int(len(live_38_ir))},
+                )
                 source_rows.append({"source": "38-live-ir", "ok": True, "rows": int(len(live_38_ir)), "detail": THIRTYEIGHT_IR_DATA_URL})
             except Exception as exc:
                 source_rows.append({"source": "38-live-ir", "ok": False, "rows": 0, "detail": str(exc)})
             try:
-                live_seibro = self._write_live_cache_frame(
-                    "seibro_release_live",
-                    fetch_seibro_release_schedule(),
-                    source="Seibro",
-                    notes=SEIBRO_RELEASE_URL,
-                )
+                live_seibro = fetch_seibro_release_schedule()
                 raw_tables["seibro_release"] = live_seibro
+                self.cache.write_frame(
+                    "seibro_release_live",
+                    live_seibro,
+                    meta={"source": "Seibro", "notes": SEIBRO_RELEASE_URL, "row_count": int(len(live_seibro))},
+                )
                 source_rows.append({"source": "Seibro-live-release", "ok": True, "rows": int(len(live_seibro)), "detail": SEIBRO_RELEASE_URL})
             except Exception as exc:
                 source_rows.append({"source": "Seibro-live-release", "ok": False, "rows": 0, "detail": str(exc)})
             try:
-                live_kind_corp = self._write_live_cache_frame(
-                    "kind_corp_download_live",
-                    clean_issue_frame(fetch_kind_corp_download_table()),
-                    source="KIND",
-                    notes="corpList download",
-                )
+                live_kind_corp = clean_issue_frame(fetch_kind_corp_download_table())
                 raw_tables["live_kind_corp"] = live_kind_corp
+                self.cache.write_frame(
+                    "kind_corp_download_live",
+                    live_kind_corp,
+                    meta={"source": "KIND", "notes": "corpList download", "row_count": int(len(live_kind_corp))},
+                )
                 source_rows.append({"source": "KIND-live-corpdownload", "ok": True, "rows": int(len(live_kind_corp)), "detail": "corpList download"})
             except Exception as exc:
                 source_rows.append({"source": "KIND-live-corpdownload", "ok": False, "rows": 0, "detail": str(exc)})
@@ -448,12 +388,6 @@ class IPODataHub:
             kind_pubprice_df=live_kind_pubprice,
             kind_corp_df=live_kind_corp,
         )
-        if not live_merged.empty and (not official_name_map.empty or not official_market_codes.empty):
-            live_merged = self._apply_official_symbol_support(live_merged, official_name_map, official_market_codes)
-        if not official_issue_overlay.empty:
-            live_merged = self._overlay_issues(live_merged, official_issue_overlay) if not live_merged.empty else official_issue_overlay.copy()
-        if not live_merged.empty and (not official_name_map.empty or not official_market_codes.empty):
-            live_merged = self._apply_official_symbol_support(live_merged, official_name_map, official_market_codes)
         if not seed_38.empty:
             live_merged = self._overlay_issues(live_merged, seed_38) if not live_merged.empty else seed_38.copy()
         if not live_38_new_listing.empty:
@@ -469,8 +403,6 @@ class IPODataHub:
 
         if not live_merged.empty:
             issues = live_merged.copy()
-        elif not official_issue_overlay.empty:
-            issues = official_issue_overlay.copy()
         elif not dart_enriched.empty:
             issues = dart_enriched.copy()
         elif allow_sample_fallback:
@@ -478,11 +410,6 @@ class IPODataHub:
         else:
             issues = pd.DataFrame(columns=STANDARD_ISSUE_COLUMNS)
 
-        if not issues.empty and (not official_name_map.empty or not official_market_codes.empty):
-            issues = self._apply_official_symbol_support(issues, official_name_map, official_market_codes)
-        if not official_issue_overlay.empty and not issues.empty:
-            issues = self._overlay_issues(issues, official_issue_overlay)
-            issues = self._apply_official_symbol_support(issues, official_name_map, official_market_codes)
         if not seed_38.empty and not issues.empty:
             issues = self._overlay_issues(issues, seed_38)
         if not live_38_new_listing.empty and not issues.empty:
@@ -500,8 +427,6 @@ class IPODataHub:
 
         if not dart_enriched.empty and not issues.empty:
             issues = self._overlay_issues(issues, dart_enriched)
-        if not issues.empty and (not official_name_map.empty or not official_market_codes.empty):
-            issues = self._apply_official_symbol_support(issues, official_name_map, official_market_codes)
         issues = clean_issue_frame(issues)
         auto_dart = self._auto_dart_overlay(issues, today=now, max_items=20)
         if not auto_dart.empty:
@@ -737,9 +662,9 @@ class IPODataHub:
         return path
 
     @staticmethod
-    def _overlay_issues(base: pd.DataFrame, updates: pd.DataFrame, *, append_new: bool = True) -> pd.DataFrame:
+    def _overlay_issues(base: pd.DataFrame, updates: pd.DataFrame) -> pd.DataFrame:
         if base.empty:
-            return updates.copy() if append_new else base.copy()
+            return updates.copy()
         if updates.empty:
             return base.copy()
         base = standardize_issue_frame(base)
@@ -763,90 +688,11 @@ class IPODataHub:
                 current["source_detail"] = coalesce(upd.get("source_detail"), current.get("source_detail"))
             rows.append(current)
             seen.add(key)
-        if append_new:
-            new_rows = updates[~updates["name_key"].isin(seen)]
-            if not new_rows.empty:
-                rows.extend(new_rows.to_dict(orient="records"))
+        new_rows = updates[~updates["name_key"].isin(seen)]
+        if not new_rows.empty:
+            rows.extend(new_rows.to_dict(orient="records"))
         out = pd.DataFrame(rows)
         return standardize_issue_frame(out)
-
-    @staticmethod
-    def _build_official_symbol_maps(name_lookup_df: pd.DataFrame | None = None, market_codes_df: pd.DataFrame | None = None) -> dict[str, dict[str, str]]:
-        symbol_by_query_name_key: dict[str, str] = {}
-        symbol_by_name_key: dict[str, str] = {}
-        market_by_symbol: dict[str, str] = {}
-        market_by_name_key: dict[str, str] = {}
-
-        if isinstance(name_lookup_df, pd.DataFrame) and not name_lookup_df.empty:
-            work = parse_date_columns(name_lookup_df.copy())
-            work["query_name_key"] = work.get("query_name_key", pd.Series(dtype="object")).fillna("").astype(str)
-            work["name_key"] = work.get("name_key", pd.Series(dtype="object")).fillna(work.get("name", pd.Series(dtype="object"))).map(normalize_name_key)
-            work["symbol"] = work.get("symbol", pd.Series(dtype="object")).map(normalize_symbol_text)
-            for _, row in work.iterrows():
-                symbol = str(row.get("symbol") or "").strip()
-                query_key = str(row.get("query_name_key") or "").strip()
-                name_key = str(row.get("name_key") or "").strip()
-                if symbol and query_key and query_key not in symbol_by_query_name_key:
-                    symbol_by_query_name_key[query_key] = symbol
-                if symbol and name_key and name_key not in symbol_by_name_key:
-                    symbol_by_name_key[name_key] = symbol
-
-        if isinstance(market_codes_df, pd.DataFrame) and not market_codes_df.empty:
-            work = parse_date_columns(market_codes_df.copy())
-            work["name_key"] = work.get("name_key", pd.Series(dtype="object")).fillna(work.get("name", pd.Series(dtype="object"))).map(normalize_name_key)
-            work["symbol"] = work.get("symbol", pd.Series(dtype="object")).map(normalize_symbol_text)
-            for _, row in work.iterrows():
-                symbol = str(row.get("symbol") or "").strip()
-                name_key = str(row.get("name_key") or "").strip()
-                market = str(row.get("market") or "").strip()
-                if symbol and name_key and name_key not in symbol_by_name_key:
-                    symbol_by_name_key[name_key] = symbol
-                if symbol and market and symbol not in market_by_symbol:
-                    market_by_symbol[symbol] = market
-                if name_key and market and name_key not in market_by_name_key:
-                    market_by_name_key[name_key] = market
-
-        return {
-            "symbol_by_query_name_key": symbol_by_query_name_key,
-            "symbol_by_name_key": symbol_by_name_key,
-            "market_by_symbol": market_by_symbol,
-            "market_by_name_key": market_by_name_key,
-        }
-
-    @classmethod
-    def _apply_official_symbol_support(
-        cls,
-        issues: pd.DataFrame,
-        name_lookup_df: pd.DataFrame | None = None,
-        market_codes_df: pd.DataFrame | None = None,
-    ) -> pd.DataFrame:
-        if issues is None or issues.empty:
-            return pd.DataFrame(columns=getattr(issues, "columns", []))
-        work = standardize_issue_frame(issues.copy())
-        work["name_key"] = work.get("name_key", pd.Series(dtype="object")).fillna(work.get("name", pd.Series(dtype="object"))).map(normalize_name_key)
-        work["symbol"] = work.get("symbol", pd.Series(dtype="object")).map(normalize_symbol_text)
-        maps = cls._build_official_symbol_maps(name_lookup_df=name_lookup_df, market_codes_df=market_codes_df)
-        symbol_by_query = maps.get("symbol_by_query_name_key", {})
-        symbol_by_name = maps.get("symbol_by_name_key", {})
-        market_by_symbol = maps.get("market_by_symbol", {})
-        market_by_name = maps.get("market_by_name_key", {})
-
-        missing_symbol = work["symbol"].isna() | work["symbol"].astype(str).eq("")
-        if missing_symbol.any():
-            fill = work.loc[missing_symbol, "name_key"].map(symbol_by_query)
-            fill = fill.combine_first(work.loc[missing_symbol, "name_key"].map(symbol_by_name))
-            work.loc[missing_symbol, "symbol"] = fill.combine_first(work.loc[missing_symbol, "symbol"])
-
-        if "market" not in work.columns:
-            work["market"] = pd.NA
-        market_series = work.get("market", pd.Series(dtype="object"))
-        missing_market = market_series.isna() | market_series.astype(str).eq("")
-        if missing_market.any():
-            fill_market = work.loc[missing_market, "symbol"].map(market_by_symbol)
-            fill_market = fill_market.combine_first(work.loc[missing_market, "name_key"].map(market_by_name))
-            work.loc[missing_market, "market"] = fill_market.combine_first(work.loc[missing_market, "market"])
-
-        return standardize_issue_frame(work)
 
     def analyze_issue_with_dart(
         self,

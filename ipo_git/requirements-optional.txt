@@ -1,2 +1,0 @@
-# 선택 설치: integrated_lab의 KIS/매매 보조 스크립트에서만 사용
-mojito2==0.1.6

@@ -1,0 +1,17 @@
+{
+  "status": "ok",
+  "generatedAt": "2026-04-08T16:05:25.810486+00:00",
+  "summary": {
+    "itemCount": 30,
+    "eventCount": 60,
+    "marketCount": 9,
+    "next30d": {
+      "subscription": 8,
+      "listing": 0,
+      "unlock": 0
+    }
+  },
+  "source": "/home/runner/work/offering_reminder/offering_reminder/ipo_git",
+  "publicBaseUrl": "https://cdn.jsdelivr.net/gh/poet1004/offering_reminder@main/mobile-feed",
+  "fallbackBaseUrl": "https://raw.githubusercontent.com/poet1004/offering_reminder/main/mobile-feed"
+}

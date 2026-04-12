@@ -140,7 +140,7 @@ class IPORepository:
         if path is None or not path.exists():
             return pd.DataFrame(columns=["name", "symbol", "listing_date", "unlock_date", "term", "ipo_price"])
         df = pd.read_csv(path)
-        df = parse_date_columns(df, ["listing_date", "unlock_date", "lockup_end_date"])
+        df = parse_date_columns(df, ["listing_date", "unlock_date"])
         required = ["name", "symbol", "listing_date", "unlock_date", "term"]
         for col in required:
             if col not in df.columns:
@@ -152,30 +152,7 @@ class IPORepository:
                 df["ipo_price"] = pd.NA
         df["name_key"] = df.get("name_key", pd.Series(dtype="object"))
         df["name_key"] = df["name_key"].fillna(df["name"].map(normalize_name_key))
-        optional_cols = [
-            "market",
-            "lead_manager",
-            "underwriters",
-            "listed_shares",
-            "unlock_type",
-            "holder_group",
-            "holder_name",
-            "relation",
-            "unlock_shares",
-            "unlock_ratio",
-            "lockup_end_date",
-            "source_report_nm",
-            "source_rcept_no",
-            "source_section",
-            "parse_confidence",
-            "note",
-            "offer_price",
-        ]
-        for col in optional_cols:
-            if col not in df.columns:
-                df[col] = pd.NA
-        keep_cols = required + ["ipo_price", "name_key"] + optional_cols
-        return df[keep_cols].copy()
+        return df[required + ["ipo_price", "name_key"]].copy()
 
     def unlock_calendar_from_issues(self, issues: pd.DataFrame) -> pd.DataFrame:
         term_map = {

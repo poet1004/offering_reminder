@@ -106,52 +106,57 @@ class ShortsStudioService:
         listings = payload.get("listings", pd.DataFrame()) if isinstance(payload, dict) else pd.DataFrame()
         unlocks = payload.get("unlocks", pd.DataFrame()) if isinstance(payload, dict) else pd.DataFrame()
         featured = payload.get("featured_issues", pd.DataFrame()) if isinstance(payload, dict) else pd.DataFrame()
+        hold_examples = payload.get("hold_examples", pd.DataFrame()) if isinstance(payload, dict) else pd.DataFrame()
         market_snapshot = payload.get("market_snapshot", pd.DataFrame()) if isinstance(payload, dict) else pd.DataFrame()
         window_days = int(metrics.get("window_days", 7))
         source_label = str(metrics.get("source_label", "캐시 우선"))
         market_source = str(metrics.get("market_source", "sample"))
-        main_title = title or f"곧 청약 시작 공모주 브리핑 {today.strftime('%m.%d')}"
-        hero = self._pick_shorts_hero_issue(subs, featured, listings)
+        main_title = title or f"공모주 레이더 데일리 {today.strftime('%Y-%m-%d')}"
 
         slides: list[ShortsSlide] = []
         slides.append(
             ShortsSlide(
                 title=main_title,
-                subtitle=f"향후 {window_days}일 일정 · 데이터 {source_label}",
-                bullets=tuple(self._hero_intro_lines(hero, metrics)),
+                subtitle=f"향후 {window_days}일 일정 요약 · 데이터 모드 {source_label}",
+                bullets=(
+                    f"청약 일정 {metrics.get('subscription_count', 0)}건",
+                    f"상장 일정 {metrics.get('listing_count', 0)}건",
+                    f"보호예수 해제 {metrics.get('unlock_count', 0)}건",
+                    f"관심 종목 포인트 {metrics.get('featured_count', 0)}건",
+                ),
                 duration_sec=4,
             )
         )
         slides.append(
             ShortsSlide(
-                title="오늘 체크할 대표 종목",
-                subtitle=self._hero_subtitle(hero),
-                bullets=tuple(self._hero_detail_lines(hero)),
-                duration_sec=5,
-            )
-        )
-        slides.append(
-            ShortsSlide(
-                title="청약 전에 볼 숫자",
-                subtitle="공모규모 · 경쟁률 · 수급 포인트",
-                bullets=tuple(self._hero_metric_lines(hero)),
-                duration_sec=5,
-            )
-        )
-        slides.append(
-            ShortsSlide(
-                title="청약 방법과 투자 포인트",
-                subtitle="주관사 확인 후 일정만 놓치지 않기",
-                bullets=tuple(self._hero_action_lines(hero, subs, listings, unlocks)),
-                duration_sec=5,
-            )
-        )
-        slides.append(
-            ShortsSlide(
-                title="시장 배경 한 줄 체크",
+                title="시장 한눈에 보기",
                 subtitle=f"소스 {market_source}",
-                bullets=tuple(self._market_lines(market_snapshot)[:4]),
+                bullets=tuple(self._market_lines(market_snapshot)),
                 duration_sec=4,
+            )
+        )
+        slides.append(
+            ShortsSlide(
+                title="다가오는 공모주 일정",
+                subtitle=f"기준일 {today.strftime('%Y-%m-%d')} 이후 {window_days}일",
+                bullets=tuple(self._schedule_lines(subs, listings, unlocks)),
+                duration_sec=5,
+            )
+        )
+        slides.append(
+            ShortsSlide(
+                title="주목 종목 포인트",
+                subtitle="청약·상장 예정 종목 중심",
+                bullets=tuple(self._featured_issue_lines(featured)),
+                duration_sec=5,
+            )
+        )
+        slides.append(
+            ShortsSlide(
+                title="상장일부터 지금까지 보유했다면",
+                subtitle="현재가 기준 단순 보유 가정",
+                bullets=tuple(self._hold_example_lines(hold_examples)),
+                duration_sec=5,
             )
         )
         return slides
@@ -377,84 +382,6 @@ class ShortsStudioService:
         return work[keep].head(5).copy()
 
     @staticmethod
-    def _pick_shorts_hero_issue(subs: pd.DataFrame, featured: pd.DataFrame, listings: pd.DataFrame) -> dict[str, Any]:
-        for frame, sort_cols in [
-            (subs, [c for c in ["subscription_start", "subscription_score", "name"] if c in getattr(subs, "columns", [])]),
-            (featured, [c for c in ["subscription_start", "listing_date", "subscription_score", "name"] if c in getattr(featured, "columns", [])]),
-            (listings, [c for c in ["listing_date", "listing_quality_score", "name"] if c in getattr(listings, "columns", [])]),
-        ]:
-            if isinstance(frame, pd.DataFrame) and not frame.empty:
-                ordered = frame.sort_values(sort_cols, ascending=[True] + [False] * max(0, len(sort_cols) - 2) + ([True] if len(sort_cols) >= 2 else []), na_position="last") if sort_cols else frame
-                return ordered.iloc[0].to_dict()
-        return {}
-
-    @staticmethod
-    def _hero_intro_lines(hero: dict[str, Any], metrics: dict[str, Any]) -> list[str]:
-        name = _safe_text(hero.get("name"), "대표 종목 미정")
-        sub_start = pd.to_datetime(hero.get("subscription_start"), errors="coerce")
-        start_text = sub_start.strftime("%m/%d") if pd.notna(sub_start) else "일정 확인"
-        return [
-            f"이번 브리핑의 중심은 {name}",
-            f"청약 시작 {start_text}",
-            f"청약 {metrics.get('subscription_count', 0)}건 · 상장 {metrics.get('listing_count', 0)}건",
-        ]
-
-    @staticmethod
-    def _hero_subtitle(hero: dict[str, Any]) -> str:
-        name = _safe_text(hero.get("name"), "대표 종목")
-        market = _safe_text(hero.get("market"), "시장 미정")
-        return f"{name} · {market}"
-
-    @staticmethod
-    def _hero_detail_lines(hero: dict[str, Any]) -> list[str]:
-        if not hero:
-            return ["대표로 소개할 종목을 아직 고르지 못했습니다."]
-        underwriters = _safe_text(hero.get("underwriters") or hero.get("lead_manager"), "주관사 확인 중")
-        sub_start = pd.to_datetime(hero.get("subscription_start"), errors="coerce")
-        sub_end = pd.to_datetime(hero.get("subscription_end"), errors="coerce")
-        period = "일정 확인 중"
-        if pd.notna(sub_start) and pd.notna(sub_end):
-            period = f"청약 {sub_start.strftime('%m/%d')}~{sub_end.strftime('%m/%d')}"
-        offer = fmt_won(hero.get("offer_price")) if hero else "-"
-        return [
-            f"주관사 {underwriters}",
-            period,
-            f"공모가 {offer}",
-        ]
-
-    @staticmethod
-    def _hero_metric_lines(hero: dict[str, Any]) -> list[str]:
-        if not hero:
-            return ["핵심 지표를 불러오지 못했습니다."]
-        total_offer = safe_float(hero.get("total_offer_shares"))
-        total_offer_text = "-" if total_offer is None else f"총공모 {total_offer:,.0f}주"
-        inst = fmt_pct(hero.get("institutional_competition_ratio"), 1) if False else None
-        inst_ratio = safe_float(hero.get("institutional_competition_ratio"))
-        inst_text = f"기관경쟁률 {inst_ratio:,.1f}:1" if inst_ratio is not None else "기관경쟁률 확인 중"
-        lockup = safe_float(hero.get("lockup_commitment_ratio"))
-        lockup_text = f"확약 {lockup:,.1f}%" if lockup is not None else "확약 데이터 확인 중"
-        return [total_offer_text, inst_text, lockup_text]
-
-    @staticmethod
-    def _hero_action_lines(hero: dict[str, Any], subs: pd.DataFrame, listings: pd.DataFrame, unlocks: pd.DataFrame) -> list[str]:
-        lines: list[str] = []
-        if hero:
-            lines.append(f"투자포인트 {_safe_text(hero.get('market'), '시장')} · {_safe_text(hero.get('underwriters') or hero.get('lead_manager'), '주관사 확인 중')}")
-        if isinstance(subs, pd.DataFrame) and not subs.empty:
-            names = [str(x).strip() for x in subs.get('name', pd.Series(dtype='object')).dropna().astype(str).head(2).tolist() if str(x).strip()]
-            if names:
-                lines.append("곧 청약: " + " · ".join(names))
-        if isinstance(listings, pd.DataFrame) and not listings.empty:
-            names = [str(x).strip() for x in listings.get('name', pd.Series(dtype='object')).dropna().astype(str).head(2).tolist() if str(x).strip()]
-            if names:
-                lines.append("곧 상장: " + " · ".join(names))
-        if isinstance(unlocks, pd.DataFrame) and not unlocks.empty:
-            names = [str(x).strip() for x in unlocks.get('name', pd.Series(dtype='object')).dropna().astype(str).head(1).tolist() if str(x).strip()]
-            if names:
-                lines.append("락업 해제: " + " · ".join(names))
-        return lines[:4] or ["청약 방법과 일정만 먼저 체크하세요."]
-
-    @staticmethod
     def _payload_json(payload: dict[str, Any]) -> str:
         serializable: dict[str, Any] = {}
         for key, value in payload.items():
@@ -470,10 +397,8 @@ class ShortsStudioService:
 
     @staticmethod
     def _default_narration(slide: ShortsSlide) -> str:
-        bits = [slide.title, slide.subtitle, *slide.bullets[:3]]
+        bits = [slide.subtitle, *slide.bullets[:3]]
         bits = [str(bit).strip() for bit in bits if str(bit or "").strip()]
-        if not bits:
-            return "오늘 공모주 일정을 빠르게 확인해보겠습니다."
         return " ".join(bits)
 
     @staticmethod
@@ -557,44 +482,33 @@ class ShortsStudioService:
         from PIL import Image, ImageDraw, ImageFont
 
         width, height = 1080, 1920
-        image = Image.new("RGB", (width, height), color=(6, 12, 24))
+        image = Image.new("RGB", (width, height), color=(9, 14, 27))
         draw = ImageDraw.Draw(image)
-        font_title = ShortsStudioService._load_font(72, bold=True)
+        font_title = ShortsStudioService._load_font(66, bold=True)
         font_sub = ShortsStudioService._load_font(34)
         font_body = ShortsStudioService._load_font(42)
         font_small = ShortsStudioService._load_font(26)
 
-        draw.rounded_rectangle((48, 48, width - 48, height - 48), radius=44, fill=(10, 18, 36), outline=(36, 78, 156), width=2)
-        draw.rounded_rectangle((72, 86, width - 72, 138), radius=22, fill=(28, 109, 255))
-        draw.text((102, 96), f"IPO SHORTS  •  SCENE {index}/{total}", font=font_small, fill=(255, 255, 255))
+        draw.rounded_rectangle((54, 54, width - 54, height - 54), radius=38, fill=(16, 24, 44), outline=(42, 65, 119), width=2)
+        draw.text((88, 92), slide.title, font=font_title, fill=(242, 246, 255))
+        draw.text((88, 184), slide.subtitle, font=font_sub, fill=(155, 171, 204))
+        draw.rounded_rectangle((88, 250, width - 88, 290), radius=18, fill=(24, 94, 224))
+        draw.text((108, 256), f"Scene {index}/{total}", font=font_small, fill=(255, 255, 255))
 
-        draw.text((88, 182), slide.title, font=font_title, fill=(248, 250, 255))
-        draw.rounded_rectangle((88, 306, width - 88, 402), radius=26, fill=(18, 31, 60))
-        sub_lines = ShortsStudioService._wrap_text(draw, slide.subtitle, font_sub, width - 180)
-        sub_y = 328
-        for line in sub_lines[:2]:
-            draw.text((116, sub_y), line, font=font_sub, fill=(183, 198, 229))
-            sub_y += 40
-
-        y = 476
-        max_width = width - 228
+        y = 360
+        bullet_indent = 46
+        max_width = width - 180
         for bullet in slide.bullets:
-            card_h = 0
             wrapped = ShortsStudioService._wrap_text(draw, bullet, font_body, max_width)
-            card_h = 38 + 56 * len(wrapped)
-            draw.rounded_rectangle((88, y - 10, width - 88, y + card_h), radius=28, fill=(15, 27, 52), outline=(44, 64, 102), width=1)
-            draw.rounded_rectangle((112, y + 10, 162, y + 60), radius=18, fill=(30, 126, 255))
-            draw.text((127, y + 18), str(len(wrapped) if len(wrapped) > 0 else 1), font=font_small, fill=(255, 255, 255))
-            text_y = y + 10
-            for line in wrapped[:3]:
-                draw.text((188, text_y), line, font=font_body, fill=(236, 240, 250))
-                text_y += 54
-            y += card_h + 26
-            if y > height - 250:
+            draw.ellipse((94, y + 14, 118, y + 38), fill=(87, 153, 255))
+            for line_idx, line in enumerate(wrapped):
+                draw.text((88 + bullet_indent, y + line_idx * 54), line, font=font_body, fill=(234, 239, 250))
+            y += 54 * len(wrapped) + 26
+            if y > height - 220:
                 break
 
-        footer = f"공모주 알리미 · 자동 생성 쇼츠 · {slide.duration_sec}초"
-        draw.text((88, height - 122), footer, font=font_small, fill=(148, 163, 184))
+        footer = f"자동 생성된 공모주 리포트 · {slide.duration_sec}초"
+        draw.text((88, height - 122), footer, font=font_small, fill=(140, 154, 186))
         out_path.parent.mkdir(parents=True, exist_ok=True)
         image.save(out_path)
 

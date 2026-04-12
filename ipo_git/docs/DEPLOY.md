@@ -19,11 +19,3 @@
 - `environment.yml`은 Streamlit Cloud에서 혼선을 줄 수 있어 배포본에서는 제외했다.
 
 - `run_refresh_live_cache.*` 실행 뒤에는 `data/cache`의 변경도 함께 커밋해야 달력/청약/시장 요약이 Streamlit 배포본에 반영됩니다.
-
-
-## GitHub Pages 정적 배포
-- GitHub Pages는 정적 사이트 전용이라 Streamlit 앱을 그대로 올리지 않고, `scripts/build_pages_site.py` 로 `_site` 정적 출력물을 생성하도록 바꿨습니다.
-- 로컬 생성: `run_build_pages_site.bat` 또는 `python scripts/build_pages_site.py --repo . --output _site`
-- 전체 갱신: `run_refresh_export_and_build_pages.bat` 또는 `python scripts/refresh_export_and_build_pages.py`
-- GitHub 저장소에서는 `Settings > Pages > Source > GitHub Actions` 로 설정하고, `github-pages-static` 워크플로가 배포를 담당합니다.
-- 자세한 절차는 `docs/GITHUB_PAGES_KR.md` 참고

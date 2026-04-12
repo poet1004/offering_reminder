@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import argparse
-import subprocess
 import sys
 from pathlib import Path
 
@@ -22,7 +21,6 @@ def main() -> None:
     parser.add_argument("--skip-kind", action="store_true")
     parser.add_argument("--skip-38", action="store_true")
     parser.add_argument("--skip-market", action="store_true")
-    parser.add_argument("--skip-official", action="store_true")
     parser.add_argument("--market-periods", nargs="*", default=["1mo", "3mo", "6mo", "1y"])
     parser.add_argument("--refresh-dart-corp", action="store_true")
     args = parser.parse_args()
@@ -33,17 +31,6 @@ def main() -> None:
     report = {
         "ipo": hub.refresh_live_cache(fetch_kind=not args.skip_kind, fetch_38=not args.skip_38),
     }
-    if not args.skip_official:
-        proc = subprocess.run(
-            [sys.executable, str(ROOT / "scripts" / "refresh_official_api_cache.py"), "--data-dir", str(data_dir)],
-            capture_output=True,
-            text=True,
-        )
-        report["official"] = {
-            "returncode": proc.returncode,
-            "stdout": (proc.stdout or "").strip(),
-            "stderr": (proc.stderr or "").strip(),
-        }
     if not args.skip_market:
         market = MarketService(data_dir, kis_client=KISClient.from_env())
         report["market"] = market.refresh_market_cache(periods=args.market_periods)
