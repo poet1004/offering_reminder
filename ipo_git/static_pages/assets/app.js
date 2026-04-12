@@ -6,6 +6,8 @@ const state = {
   items: [],
   unlockRows: [],
   timeline: [],
+  today: null,
+  ui: { listingPage: 1, listingPerPage: 10 },
 };
 
 const el = (selector) => document.querySelector(selector);
@@ -18,6 +20,12 @@ function parseDate(value) {
   const plain = text.length >= 10 ? text.slice(0, 10) : text;
   const date = new Date(`${plain}T00:00:00`);
   return Number.isNaN(date.getTime()) ? null : date;
+}
+
+function startOfDay(value = new Date()) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return null;
+  return new Date(date.getFullYear(), date.getMonth(), date.getDate());
 }
 
 function diffDays(a, b) {
@@ -259,7 +267,11 @@ function deriveListingStatus(item) {
   if (item.delistingDate) return '상장폐지';
   if (item.listingStatus) return item.listingStatus;
   if (item.currentPrice || item.ma20 || item.ma60 || item.rsi14) return '상장';
-  if (item.listingDate && /스팩/.test(item.displayName || item.name || '') && !item.currentPrice) return '청산/상장폐지 가능';
+  const listingDate = parseDate(item.listingDate);
+  if (listingDate && /스팩/.test(item.displayName || item.name || '') && !item.currentPrice) {
+    const age = diffDays(startOfDay(new Date()), listingDate);
+    if (age !== null && age >= 365) return '상장상태 미확인';
+  }
   return item.listingDate ? '상장' : '미상';
 }
 
@@ -320,6 +332,34 @@ function buildTimeline(feed, today) {
     .slice(0, 12);
 }
 
+function computeCountsFromEvents(events, today, days = 30) {
+  const counts = { subscription: 0, listing: 0, unlock: 0 };
+  for (const event of events || []) {
+    const date = parseDate(event.date);
+    const delta = diffDays(date, today);
+    if (delta === null || delta < 0 || delta > days) continue;
+    if (event.type === 'listing') counts.listing += 1;
+    else if (String(event.type || '').startsWith('subscription_')) counts.subscription += 1;
+    else if (String(event.type || '').startsWith('unlock_')) counts.unlock += 1;
+  }
+  return counts;
+}
+
+function deriveMarketMood(quotes) {
+  const candidates = ['KOSPI', 'KOSDAQ', 'NASDAQ100 Futures', 'S&P500 Futures'];
+  const moves = (quotes || [])
+    .filter((row) => candidates.includes(row.name))
+    .map((row) => numberOrNull(row.changePct))
+    .filter((value) => value !== null);
+  if (!moves.length) return { label: '중립', detail: '시장 지표 대기' };
+  const average = moves.reduce((acc, value) => acc + value, 0) / moves.length;
+  const maxAbs = Math.max(...moves.map((value) => Math.abs(value)));
+  if (maxAbs >= 3 || Math.abs(average) >= 1.8) return { label: average >= 0 ? '강한 위험선호' : '변동성 확대', detail: `평균 ${formatRatio(average, 2)}` };
+  if (average >= 0.6) return { label: '강세', detail: `평균 ${formatRatio(average, 2)}` };
+  if (average <= -0.6) return { label: '약세', detail: `평균 ${formatRatio(average, 2)}` };
+  return { label: '중립', detail: `평균 ${formatRatio(average, 2)}` };
+}
+
 function eventTypeLabel(type) {
   const map = {
     subscription_start: '청약 시작',
@@ -355,8 +395,9 @@ async function init() {
     state.feed = feed;
     state.backtest = Array.isArray(backtest) ? backtest : [];
     state.health = health;
-    const today = parseDate(feed.upstreamUpdatedAt || feed.generatedAt) || new Date();
+    const today = startOfDay(new Date()) || parseDate(feed.upstreamUpdatedAt || feed.generatedAt) || new Date();
     state.today = today;
+    state.feedDate = parseDate(feed.upstreamUpdatedAt || feed.generatedAt);
     state.items = enrichItems(feed.items || []);
     state.unlockRows = buildUnlockRows(state.items);
     state.timeline = buildTimeline(feed, today);
@@ -433,8 +474,14 @@ function bindControls() {
     '#explorer-query', '#explorer-market', '#explorer-stage', '#explorer-sort',
   ].forEach((selector) => {
     const node = el(selector);
-    if (node) node.addEventListener('input', renderAll);
-    if (node) node.addEventListener('change', renderAll);
+    if (node) node.addEventListener('input', () => {
+      if (selector.startsWith('#listing-')) state.ui.listingPage = 1;
+      renderAll();
+    });
+    if (node) node.addEventListener('change', () => {
+      if (selector.startsWith('#listing-')) state.ui.listingPage = 1;
+      renderAll();
+    });
   });
 
   const shortsSelect = el('#shorts-item-select');
@@ -459,7 +506,6 @@ function renderAll() {
   renderListings();
   renderUnlocks();
   renderExplorer();
-  renderShorts();
   renderDataHealth();
 }
 
@@ -469,17 +515,19 @@ function renderDashboard() {
   const today = state.today;
   const items = state.items;
   const summary = feed.summary || {};
-  const next30 = summary.next30d || {};
+  const next30 = computeCountsFromEvents(feed.events || [], today, 30);
+  const usdkrw = (feed.marketQuotes || []).find((row) => row.name === 'USD/KRW');
+  const marketMood = deriveMarketMood(feed.marketQuotes || []);
   const stats = [
-    { label: '종목 수', value: summary.itemCount || items.length, sub: '중복 병합 후 표시' },
-    { label: '이벤트 수', value: summary.eventCount || (feed.events || []).length, sub: '청약·상장·보호예수' },
-    { label: '30일 내 청약', value: next30.subscription || 0, sub: '청약 시작/마감 기준' },
-    { label: '30일 내 보호예수', value: next30.unlock || 0, sub: '해제 이벤트 기준' },
+    { label: '30일 내 청약', value: next30.subscription || 0, sub: '오늘 기준 예정 일정' },
+    { label: '30일 내 상장', value: next30.listing || 0, sub: '오늘 기준 예정 일정' },
+    { label: '환율', value: usdkrw ? formatNumber(usdkrw.last) : '-', sub: usdkrw ? `USD/KRW ${formatRatio(usdkrw.changePct, 2)}` : '환율 데이터 대기' },
+    { label: '시장 분위기', value: marketMood.label, sub: marketMood.detail },
   ];
   el('#summary-stats').innerHTML = stats.map((stat) => `
     <div class="stat-card">
       <div class="label">${escapeHtml(stat.label)}</div>
-      <div class="value mono">${escapeHtml(formatNumber(stat.value))}</div>
+      <div class="value mono">${typeof stat.value === 'number' ? escapeHtml(formatNumber(stat.value)) : escapeHtml(String(stat.value))}</div>
       <div class="sub">${escapeHtml(stat.sub)}</div>
     </div>
   `).join('');
@@ -512,12 +560,19 @@ function renderDashboard() {
     `;
   }).join('') : emptyState('가까운 일정이 없습니다.');
 
-  const upcomingSubs = items.filter((item) => item.subscriptionStart).sort((a, b) => sortByDateAsc(a, b, 'subscriptionStart')).slice(0, 6);
+  let upcomingSubs = items.filter((item) => {
+    if (!item.subscriptionStart) return false;
+    const delta = diffDays(parseDate(item.subscriptionStart), today);
+    return delta !== null && delta >= 0 && delta <= 45;
+  }).sort((a, b) => sortByDateAsc(a, b, 'subscriptionStart')).slice(0, 6);
+  if (!upcomingSubs.length) {
+    upcomingSubs = items.filter((item) => item.subscriptionStart).sort((a, b) => sortByDateAsc(a, b, 'subscriptionStart')).slice(0, 6);
+  }
   el('#dashboard-subscription-cards').innerHTML = renderMiniIssueCards(upcomingSubs, 'subscription');
 
   const upcomingUnlocks = state.unlockRows.filter((row) => {
     const delta = diffDays(parseDate(row.date), today);
-    return delta !== null && delta >= -3;
+    return delta !== null && delta >= 0 && delta <= 45;
   }).slice(0, 6);
   el('#dashboard-unlock-cards').innerHTML = upcomingUnlocks.length ? upcomingUnlocks.map((row) => `
     <div class="mini-card">
@@ -552,9 +607,9 @@ function buildBriefingLine1(quotes, largestMove) {
 }
 
 function buildBriefingLine2(summary, nearest) {
-  const next30 = summary.next30d || {};
-  const parts = [`앞으로 30일 청약 ${formatNumber(next30.subscription || 0)}건`, `상장 ${formatNumber(next30.listing || 0)}건`, `보호예수 해제 ${formatNumber(next30.unlock || 0)}건`];
-  if (nearest) parts.push(`가장 가까운 일정은 ${formatDateShort(nearest.date)} ${nearest.name} ${eventTypeLabel(nearest.type)}`);
+  const next30 = computeCountsFromEvents(state.feed?.events || [], state.today, 30);
+  const parts = [`30일 청약 ${formatNumber(next30.subscription || 0)}건`, `상장 ${formatNumber(next30.listing || 0)}건`, `보호예수 해제 ${formatNumber(next30.unlock || 0)}건`];
+  if (nearest) parts.push(`가까운 일정 ${formatDateShort(nearest.date)} ${nearest.name}`);
   return parts.join(' · ');
 }
 
@@ -629,13 +684,22 @@ function renderListings() {
   const sort = el('#listing-sort')?.value || 'recent';
   let items = state.items.filter((item) => item.listingDate);
   if (query) items = items.filter((item) => item.searchText.includes(query));
-  if (status === 'listed') items = items.filter((item) => !/상장폐지|청산/.test(item.listingStatus || ''));
+  if (status === 'listed') items = items.filter((item) => !/상장폐지|청산/.test(item.listingStatus || '') && item.listingStatus !== '상장상태 미확인');
   if (status === 'delisted') items = items.filter((item) => /상장폐지|청산/.test(item.listingStatus || ''));
   if (sort === 'oldest') items.sort((a, b) => sortByDateAsc(a, b, 'listingDate'));
   else if (sort === 'return') items.sort((a, b) => (b.returnPct ?? -999999) - (a.returnPct ?? -999999));
   else items.sort((a, b) => sortByDateDesc(a, b, 'listingDate'));
-  el('#listing-meta').textContent = `${items.length}건`;
-  el('#listing-table tbody').innerHTML = items.slice(0, 400).map((item) => {
+
+  const perPage = state.ui.listingPerPage || 10;
+  const total = items.length;
+  const pageCount = Math.max(1, Math.ceil(total / perPage));
+  const currentPage = Math.min(Math.max(1, state.ui.listingPage || 1), pageCount);
+  state.ui.listingPage = currentPage;
+  const start = (currentPage - 1) * perPage;
+  const pageItems = items.slice(start, start + perPage);
+
+  el('#listing-meta').textContent = `${total}건 · ${currentPage}/${pageCount} 페이지`;
+  el('#listing-table tbody').innerHTML = pageItems.map((item) => {
     const returnClass = item.returnPct === null ? '' : item.returnPct >= 0 ? 'good' : 'bad';
     return `
       <tr>
@@ -651,6 +715,38 @@ function renderListings() {
       </tr>
     `;
   }).join('') || `<tr><td colspan="9">조건에 맞는 상장 종목이 없습니다.</td></tr>`;
+
+  renderPager('listing-pager', currentPage, pageCount, perPage, total, (page) => {
+    state.ui.listingPage = page;
+    renderListings();
+  });
+}
+
+
+function renderPager(containerId, currentPage, pageCount, perPage, totalItems, onChange) {
+  const container = el(`#${containerId}`);
+  if (!container) return;
+  if (pageCount <= 1) {
+    container.innerHTML = '';
+    return;
+  }
+  const pages = [];
+  const start = Math.max(1, currentPage - 2);
+  const end = Math.min(pageCount, start + 4);
+  pages.push(`<button class="pager-button" data-page="${Math.max(1, currentPage - 1)}" ${currentPage === 1 ? 'disabled' : ''}>‹</button>`);
+  for (let page = start; page <= end; page += 1) {
+    pages.push(`<button class="pager-button ${page === currentPage ? 'active' : ''}" data-page="${page}">${page}</button>`);
+  }
+  pages.push(`<button class="pager-button" data-page="${Math.min(pageCount, currentPage + 1)}" ${currentPage === pageCount ? 'disabled' : ''}>›</button>`);
+  pages.push(`<span class="pager-summary">${formatNumber(totalItems)}건 · ${perPage}개씩</span>`);
+  container.innerHTML = pages.join('');
+  container.querySelectorAll('button[data-page]').forEach((button) => {
+    button.addEventListener('click', () => {
+      const page = Number(button.dataset.page || currentPage);
+      if (!Number.isFinite(page) || page === currentPage) return;
+      onChange(page);
+    });
+  });
 }
 
 function renderUnlocks() {

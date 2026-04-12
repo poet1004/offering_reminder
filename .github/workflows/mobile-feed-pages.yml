@@ -15,6 +15,8 @@ on:
       - 'ipo_git/data/sample_market_snapshot.csv'
       - 'ipo_git/scripts/export_mobile_feed.py'
       - 'ipo_git/scripts/refresh_market_snapshot.py'
+      - 'ipo_git/scripts/refresh_official_api_cache.py'
+      - 'ipo_git/src/services/public_data_client.py'
       - 'ipo_git/scripts/build_pages_site.py'
       - 'ipo_git/static_pages/**'
       - 'ipo_git/src/services/market_service.py'
@@ -51,6 +53,15 @@ jobs:
         continue-on-error: true
         run: |
           python ipo_git/scripts/refresh_market_snapshot.py --data-dir ipo_git/data
+
+      - name: Refresh official public-data caches
+        continue-on-error: true
+        env:
+          PUBLIC_DATA_SERVICE_KEY: ${{ secrets.PUBLIC_DATA_SERVICE_KEY }}
+          KSD_PUBLIC_DATA_SERVICE_KEY: ${{ secrets.KSD_PUBLIC_DATA_SERVICE_KEY }}
+          DART_API_KEY: ${{ secrets.DART_API_KEY }}
+        run: |
+          python ipo_git/scripts/refresh_official_api_cache.py --data-dir ipo_git/data
 
       - name: Resolve public URLs
         shell: bash
