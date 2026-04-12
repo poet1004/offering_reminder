@@ -180,6 +180,38 @@ def _read_cache_frame(repo: Path, name: str) -> pd.DataFrame:
     return parse_date_columns(df)
 
 
+def augment_cache_inventory(repo: Path, cache_inventory: pd.DataFrame) -> pd.DataFrame:
+    base = cache_inventory.copy() if isinstance(cache_inventory, pd.DataFrame) else pd.DataFrame()
+    if base.empty:
+        base = pd.DataFrame(columns=['name', 'rows', 'saved_at', 'source', 'notes'])
+    if 'name' not in base.columns:
+        base['name'] = pd.NA
+    existing_names = set(base['name'].dropna().astype(str).tolist())
+    extra_rows: list[dict[str, Any]] = []
+    for cache_name in OFFICIAL_CACHE_NAMES + ['kind_listing_live', 'kind_public_offering_live', 'kind_pubprice_live']:
+        if cache_name in existing_names:
+            continue
+        meta = _read_meta_json(repo / 'data' / 'cache' / f'{cache_name}.meta.json')
+        csv_path = repo / 'data' / 'cache' / f'{cache_name}.csv'
+        if not meta and not csv_path.exists():
+            continue
+        rows = meta.get('row_count')
+        if rows is None and csv_path.exists():
+            rows = len(read_csv_safe(csv_path))
+        extra_rows.append(
+            {
+                'name': cache_name,
+                'rows': rows,
+                'saved_at': meta.get('saved_at'),
+                'source': meta.get('source'),
+                'notes': meta.get('notes'),
+            }
+        )
+    if extra_rows:
+        base = pd.concat([base, pd.DataFrame(extra_rows)], ignore_index=True)
+    return base
+
+
 def _group_first_map(df: pd.DataFrame, key_cols: list[str], value_cols: list[str], sort_cols: list[str] | None = None) -> dict[str, dict[str, Any]]:
     if df is None or df.empty:
         return {}
@@ -600,11 +632,21 @@ def build_warnings(cache_inventory: pd.DataFrame, source_status: pd.DataFrame, e
 
     if cache_inventory is not None and not cache_inventory.empty and {'name', 'rows'}.issubset(cache_inventory.columns):
         keyed = cache_inventory.set_index('name', drop=False)
-        for cache_name in ['kind_listing_live', 'kind_public_offering_live', 'kind_pubprice_live']:
+        official_total = 0
+        for cache_name in OFFICIAL_CACHE_NAMES:
             if cache_name in keyed.index:
                 rows = pd.to_numeric(keyed.loc[cache_name, 'rows'], errors='coerce')
-                if pd.isna(rows) or int(rows) <= 0:
-                    warnings.append(f'{cache_name} cache rows=0')
+                if pd.notna(rows) and int(rows) > 0:
+                    official_total += int(rows)
+        if official_total <= 0:
+            kind_missing = 0
+            for cache_name in ['kind_listing_live', 'kind_public_offering_live', 'kind_pubprice_live']:
+                if cache_name in keyed.index:
+                    rows = pd.to_numeric(keyed.loc[cache_name, 'rows'], errors='coerce')
+                    if pd.isna(rows) or int(rows) <= 0:
+                        kind_missing += 1
+            if kind_missing == 3 and ('listing' not in event_types or not any(event_type.startswith('unlock_') for event_type in event_types)):
+                warnings.append('KIND 보조 캐시가 비어 있고 일부 일정 데이터가 부족할 수 있습니다.')
 
     if source_status is not None and not source_status.empty and 'ok' in source_status.columns:
         failures = source_status[~source_status['ok'].fillna(False)]
@@ -687,6 +729,7 @@ def build_feed(repo: Path, *, prefer_live: bool = False, use_cache: bool = True)
     market_path = inputs['market_path']
     market_meta = inputs['market_meta'] or {}
     cache_inventory = inputs['cache_inventory'] if isinstance(inputs['cache_inventory'], pd.DataFrame) else pd.DataFrame()
+    cache_inventory = augment_cache_inventory(repo, cache_inventory)
     source_status = inputs['source_status'] if isinstance(inputs['source_status'], pd.DataFrame) else pd.DataFrame()
 
     items = dedupe_items([build_item(row) for _, row in issues.iterrows()])

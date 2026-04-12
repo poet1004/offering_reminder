@@ -2,9 +2,9 @@
   "schemaVersion": 3,
   "generator": "scripts/export_mobile_feed.py",
   "appName": "공모주 알리미",
-  "generatedAt": "2026-04-12T10:46:28.699362+00:00",
+  "generatedAt": "2026-04-12T07:06:00.003980+00:00",
   "upstreamUpdatedAt": "2026-04-11T00:00:00",
-  "source": "/mnt/data/web_pages_work/ipo_git",
+  "source": "/tmp/mobile_patch/web/ipo_git",
   "sources": {
     "issuesMode": "bundle",
     "issuesSource": "IPODataHub.load_bundle()",
@@ -105405,7 +105405,7 @@
       "source": "38-seed",
       "ok": true,
       "rows": 893,
-      "detail": "/mnt/data/web_pages_work/ipo_git/integrated_lab/ipo_lockup_unified_lab/workspace/dataset_out/ipo_master_38.csv"
+      "detail": "/tmp/mobile_patch/web/ipo_git/integrated_lab/ipo_lockup_unified_lab/workspace/dataset_out/ipo_master_38.csv"
     },
     {
       "source": "38-cache",

@@ -61,6 +61,12 @@ jobs:
           KSD_PUBLIC_DATA_SERVICE_KEY: ${{ secrets.KSD_PUBLIC_DATA_SERVICE_KEY }}
           DART_API_KEY: ${{ secrets.DART_API_KEY }}
         run: |
+          export PUBLIC_DATA_SERVICE_KEY="${PUBLIC_DATA_SERVICE_KEY:-$KSD_PUBLIC_DATA_SERVICE_KEY}"
+          export KSD_PUBLIC_DATA_SERVICE_KEY="${KSD_PUBLIC_DATA_SERVICE_KEY:-$PUBLIC_DATA_SERVICE_KEY}"
+          if [ -z "${PUBLIC_DATA_SERVICE_KEY}${KSD_PUBLIC_DATA_SERVICE_KEY}" ]; then
+            echo "PUBLIC_DATA_SERVICE_KEY missing; skip official cache refresh"
+            exit 0
+          fi
           python ipo_git/scripts/refresh_official_api_cache.py --data-dir ipo_git/data
 
       - name: Resolve public URLs

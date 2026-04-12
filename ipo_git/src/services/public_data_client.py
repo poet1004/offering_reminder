@@ -85,6 +85,7 @@ class KSDPublicDataClient:
             os.getenv("PUBLIC_DATA_SERVICE_KEY", "").strip(),
             os.getenv("DATA_GO_SERVICE_KEY", "").strip(),
             os.getenv("SEIBRO_SERVICE_KEY", "").strip(),
+            os.getenv("KRX_PUBLIC_DATA_SERVICE_KEY", "").strip(),
         ]
         key = next((value for value in candidates if value), "")
         if not key:

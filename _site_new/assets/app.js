@@ -7,7 +7,7 @@ const state = {
   unlockRows: [],
   timeline: [],
   today: null,
-  ui: { listingPage: 1, listingPerPage: 10, subscriptionPage: 1, subscriptionPerPage: 6, unlockPage: 1, unlockPerPage: 10, explorerPage: 1, explorerPerPage: 10, calendarMonthOffset: 0, calendarSelectedDate: '' },
+  ui: { listingPage: 1, listingPerPage: 10, subscriptionPage: 1, subscriptionPerPage: 8, unlockPage: 1, unlockPerPage: 8, explorerPage: 1, explorerPerPage: 8, calendarMonthOffset: 0, calendarSelectedDate: '' },
 };
 
 const el = (selector) => document.querySelector(selector);
@@ -120,6 +120,23 @@ function sortByDateAsc(a, b, key) {
 function sortByDateDesc(a, b, key) {
   return sortByDateAsc(b, a, key);
 }
+function sortByUpcoming(a, b, key) {
+  const today = state.today || startOfDay(new Date());
+  const score = (row) => {
+    const date = parseDate(row[key]);
+    if (!date) return [2, 999999];
+    const delta = diffDays(date, today);
+    if (delta === null) return [2, 999999];
+    if (delta >= 0) return [0, delta];
+    return [1, Math.abs(delta)];
+  };
+  const [ag, av] = score(a);
+  const [bg, bv] = score(b);
+  if (ag !== bg) return ag - bg;
+  if (av !== bv) return av - bv;
+  return String(a.displayName || a.name || '').localeCompare(String(b.displayName || b.name || ''), 'ko');
+}
+
 
 function choice(...values) {
   for (const value of values) {
@@ -552,7 +569,7 @@ function renderDashboard() {
     </div>
   `).join('');
 
-  const quotes = (feed.marketQuotes || []).slice(0, 8);
+  const quotes = (feed.marketQuotes || []).slice(0, 4);
   el('#market-grid').innerHTML = quotes.length ? quotes.map((quote) => {
     const change = numberOrNull(quote.changePct);
     const changeClass = change === null ? '' : change >= 0 ? 'good' : 'bad';
@@ -566,7 +583,8 @@ function renderDashboard() {
     `;
   }).join('') : emptyState('시장 지표가 없습니다.');
 
-  el('#timeline-list').innerHTML = state.timeline.length ? state.timeline.map((event) => {
+  const timelineRows = state.timeline.slice(0, 8);
+  el('#timeline-list').innerHTML = timelineRows.length ? timelineRows.map((event) => {
     const delta = diffDays(event.dateObj, today);
     const dday = delta === 0 ? 'D-day' : delta > 0 ? `D-${delta}` : `D+${Math.abs(delta)}`;
     return `
@@ -580,20 +598,19 @@ function renderDashboard() {
     `;
   }).join('') : emptyState('가까운 일정이 없습니다.');
 
-  let upcomingSubs = items.filter((item) => {
+  const upcomingSubs = items.filter((item) => {
     if (!item.subscriptionStart) return false;
     const delta = diffDays(parseDate(item.subscriptionStart), today);
     return delta !== null && delta >= 0 && delta <= 45;
-  }).sort((a, b) => sortByDateAsc(a, b, 'subscriptionStart')).slice(0, 4);
-  if (!upcomingSubs.length) {
-    upcomingSubs = items.filter((item) => item.subscriptionStart).sort((a, b) => sortByDateAsc(a, b, 'subscriptionStart')).slice(0, 4);
-  }
-  el('#dashboard-subscription-cards').innerHTML = renderMiniIssueCards(upcomingSubs, 'subscription');
+  }).sort((a, b) => sortByUpcoming(a, b, 'subscriptionStart')).slice(0, 6);
+  el('#dashboard-subscription-cards').innerHTML = upcomingSubs.length
+    ? renderMiniIssueCards(upcomingSubs, 'subscription')
+    : emptyState('45일 내 예정된 청약이 없습니다.');
 
   const upcomingUnlocks = state.unlockRows.filter((row) => {
     const delta = diffDays(parseDate(row.date), today);
     return delta !== null && delta >= 0 && delta <= 45;
-  }).slice(0, 4);
+  }).slice(0, 6);
   el('#dashboard-unlock-cards').innerHTML = upcomingUnlocks.length ? upcomingUnlocks.map((row) => `
     <div class="mini-card">
       <div class="title">${escapeHtml(termLabel(row.term))} · ${escapeHtml(row.market)}</div>
@@ -752,7 +769,7 @@ function renderSubscriptions() {
   if (market) items = items.filter((item) => item.market === market);
   if (sort === 'latest') items.sort((a, b) => sortByDateDesc(a, b, 'subscriptionStart'));
   else if (sort === 'name') items.sort((a, b) => a.displayName.localeCompare(b.displayName, 'ko'));
-  else items.sort((a, b) => sortByDateAsc(a, b, 'subscriptionStart'));
+  else items.sort((a, b) => sortByUpcoming(a, b, 'subscriptionStart'));
 
   const perPage = state.ui.subscriptionPerPage || 10;
   const total = items.length;
@@ -772,13 +789,12 @@ function renderSubscriptions() {
 
 function renderIssueCard(item) {
   const competition = item.institutionalCompetitionRatio ? formatCompetition(item.institutionalCompetitionRatio) : '-';
+  const retailCompetition = item.retailCompetitionRatio ? formatCompetition(item.retailCompetitionRatio) : '-';
   const links = [];
   if (item.dartViewerUrl) links.push(`<a class="link-chip" href="${escapeHtml(item.dartViewerUrl)}" target="_blank" rel="noreferrer">증권신고서</a>`);
   if (item.irPdfUrl) links.push(`<a class="link-chip" href="${escapeHtml(item.irPdfUrl)}" target="_blank" rel="noreferrer">IR PDF</a>`);
   if (item.irUrl) links.push(`<a class="link-chip" href="${escapeHtml(item.irUrl)}" target="_blank" rel="noreferrer">IR 자료실</a>`);
   if (item.homepUrl) links.push(`<a class="link-chip" href="${escapeHtml(item.homepUrl)}" target="_blank" rel="noreferrer">홈페이지</a>`);
-  const shareholderText = item.existingShareholderRatio ? formatRatio(item.existingShareholderRatio) : '-';
-  const lockupText = item.lockupCommitmentRatio ? formatRatio(item.lockupCommitmentRatio) : '-';
   return `
     <article class="issue-card">
       <div class="issue-card-header">
@@ -794,12 +810,14 @@ function renderIssueCard(item) {
       <dl>
         <div><dt>수요예측</dt><dd>${escapeHtml(item.forecastText)}</dd></div>
         <div><dt>주관사</dt><dd>${escapeHtml(item.underwriterText)}</dd></div>
-        <div><dt>희망가</dt><dd>${escapeHtml(item.priceBandText)}</dd></div>
-        <div><dt>공모가</dt><dd>${escapeHtml(formatPrice(item.offerPrice))}</dd></div>
+        <div><dt>희망가 밴드</dt><dd>${escapeHtml(item.priceBandText)}</dd></div>
+        <div><dt>확정 공모가</dt><dd>${escapeHtml(formatPrice(item.offerPrice))}</dd></div>
         <div><dt>기관경쟁률</dt><dd>${escapeHtml(competition)}</dd></div>
-        <div><dt>확약 / 기존주주</dt><dd>${escapeHtml(`${lockupText} / ${shareholderText}`)}</dd></div>
+        <div><dt>일반청약 경쟁률</dt><dd>${escapeHtml(retailCompetition)}</dd></div>
+        <div><dt>확약 비율</dt><dd>${escapeHtml(formatRatio(item.lockupCommitmentRatio))}</dd></div>
+        <div><dt>기존주주 비율</dt><dd>${escapeHtml(formatRatio(item.existingShareholderRatio))}</dd></div>
       </dl>
-      ${links.length ? `<div class="link-row">${links.join('')}</div>` : ''}
+      <div class="link-row">${links.join('')}</div>
     </article>
   `;
 }
@@ -883,7 +901,7 @@ function renderUnlocks() {
   if (query) rows = rows.filter((row) => row.searchText.includes(query));
   if (term) rows = rows.filter((row) => row.term === term);
   if (sort === 'latest') rows.sort((a, b) => sortByDateDesc(a, b, 'date'));
-  else rows.sort((a, b) => sortByDateAsc(a, b, 'date'));
+  else rows.sort((a, b) => sortByUpcoming(a, b, 'date'));
 
   const perPage = state.ui.unlockPerPage || 10;
   const total = rows.length;
@@ -1028,50 +1046,37 @@ function renderDataHealth() {
   const feed = state.feed;
   const health = state.health || {};
   if (!feed) return;
-
-  const kindZeroPattern = /^kind_(listing|public_offering|pubprice)_live cache rows=0$/i;
-  const warnings = [...(feed.warnings || []), ...(health.feedWarnings || [])]
-    .map((warning) => String(warning || '').trim())
-    .filter(Boolean);
-  const hiddenKindWarnings = warnings.filter((warning) => kindZeroPattern.test(warning));
-  const uniqueWarnings = Array.from(new Set(warnings.filter((warning) => !kindZeroPattern.test(warning))));
-  if (hiddenKindWarnings.length) {
-    uniqueWarnings.push('KIND 보조 캐시 일부는 비어 있지만 배포본은 공식 API와 기존 번들을 우선 사용합니다.');
-  }
+  const warnings = [...(feed.warnings || []), ...(health.feedWarnings || [])];
+  const uniqueWarnings = Array.from(new Set(warnings)).filter((warning) => !/^kind_(listing|public_offering|pubprice)_live cache rows=0$/i.test(String(warning || '')));
   el('#warning-list').innerHTML = uniqueWarnings.length
-    ? uniqueWarnings.map((warning) => `<div class="warning-item ${/우선 사용|없습니다/.test(warning) ? 'ok' : ''}">${escapeHtml(warning)}</div>`).join('')
+    ? uniqueWarnings.map((warning) => `<div class="warning-item">${escapeHtml(warning)}</div>`).join('')
     : '<div class="warning-item ok">현재 경고가 없습니다.</div>';
 
-  const cacheInventory = Array.isArray(feed.cacheInventory) ? feed.cacheInventory : [];
-  const cacheEntries = cacheInventory.filter((entry) => {
-    const name = String(entry?.name || '');
-    const rows = Number(entry?.rows);
-    return !(/^kind_(listing|public_offering|pubprice)_live$/i.test(name) && (!Number.isFinite(rows) || rows <= 0));
+  const cacheInventory = feed.cacheInventory || {};
+  const cacheEntries = Object.entries(cacheInventory).filter(([key, value]) => {
+    if (!/^kind_(listing|public_offering|pubprice)_live$/i.test(String(key || ''))) return true;
+    const rows = value?.rows ?? value?.rowCount ?? 0;
+    return Number(rows) > 0;
   });
-  el('#cache-grid').innerHTML = cacheEntries.length ? cacheEntries.map((entry) => {
-    const key = entry?.name || '-';
-    const rows = entry?.rows ?? entry?.rowCount ?? '-';
-    const updated = entry?.savedAt || entry?.saved_at || entry?.updatedAt || entry?.asOf || '-';
-    const source = entry?.source || '';
-    const notes = entry?.notes || '';
+  el('#cache-grid').innerHTML = cacheEntries.length ? cacheEntries.map(([key, value]) => {
+    const rows = value?.rows ?? value?.rowCount ?? '-';
+    const updated = value?.updatedAt || value?.asOf || '-';
     return `
       <div class="cache-card">
-        <div class="key">${escapeHtml(String(key))}</div>
+        <div class="key">${escapeHtml(key)}</div>
         <div class="value mono">${escapeHtml(String(rows))} rows</div>
-        <div class="table-sub">${escapeHtml(String(updated))}${source ? ` · ${escapeHtml(String(source))}` : ''}</div>
-        ${notes ? `<div class="table-sub">${escapeHtml(String(notes))}</div>` : ''}
+        <div class="table-sub">${escapeHtml(String(updated))}</div>
       </div>
     `;
   }).join('') : emptyState('캐시 인벤토리가 없습니다.');
 
-  const sourceStatus = Array.isArray(feed.sourceStatus) ? feed.sourceStatus : [];
-  const displaySources = sourceStatus.filter((row) => {
-    const source = String(row?.source || row?.name || '');
-    const detail = String(row?.detail || '');
-    if (/kind/i.test(source) && /0 rows|empty|no rows/i.test(detail)) return false;
+  const sourceStatus = (Array.isArray(feed.sourceStatus) ? feed.sourceStatus : []).filter((row) => {
+    const name = String(row.name || row.source || '').toLowerCase();
+    const detail = String(row.detail || row.status || '').toLowerCase();
+    if (/kind_(listing|public_offering|pubprice)_live/.test(name) && /rows=0|0행|0 rows/.test(detail)) return false;
     return true;
   });
-  el('#source-status-list').innerHTML = displaySources.length ? displaySources.map((row) => {
+  el('#source-status-list').innerHTML = sourceStatus.length ? sourceStatus.map((row) => {
     const ok = row.ok !== false;
     return `
       <div class="source-card">
