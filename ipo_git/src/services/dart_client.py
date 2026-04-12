@@ -13,6 +13,9 @@ import requests
 from src.utils import cache_dir, ensure_dir, normalize_name_key
 
 
+DEFAULT_DART_API_KEY = "d6023038ffd78ee5d4ad800d7d3811663ff3a18b"
+
+
 class DartClient:
     def __init__(self, api_key: str, session: requests.Session | None = None) -> None:
         self.api_key = api_key
@@ -21,7 +24,7 @@ class DartClient:
 
     @classmethod
     def from_env(cls) -> "DartClient | None":
-        api_key = os.getenv("DART_API_KEY", "").strip()
+        api_key = os.getenv("DART_API_KEY", "").strip() or DEFAULT_DART_API_KEY
         if not api_key:
             return None
         return cls(api_key=api_key)

@@ -16,3 +16,20 @@
 ## 쇼츠 생성 오류
 - 먼저 `스크립트 초안 생성`을 눌러 payload를 만든다.
 - MP4는 선택 옵션이며, 영상 편집이 목적이면 ZIP과 스크립트만 먼저 받는 것을 권장한다.
+
+
+## 모바일 앱에서 청약만 보이고 상장/보호예수가 안 보일 때
+
+아래 경우가 가장 흔합니다.
+
+1. GitHub에 올라간 `mobile-feed/mobile-feed.json` 이 예전 subscription-only 버전이다.
+2. 새 코드로 앱은 빌드했지만 repo 루트 `mobile-feed/` 정적 파일은 아직 다시 생성하지 않았다.
+
+확인 순서:
+
+```bash
+python scripts/refresh_and_export_mobile_feed.py
+python scripts/verify_mobile_feed.py --path data/mobile/mobile-feed.json
+```
+
+검증 리포트에서 `listing events`, `unlock events`, `schemaVersion` 을 먼저 보면 됩니다.

@@ -1,5 +1,7 @@
 # 공모주 알리미
 
+> Windows 설치 시에는 **Python 3.11 64-bit(x64)** 를 사용하세요. `pandas`가 source build로 내려가면 Visual Studio 빌드 오류가 납니다.
+
 공모주 일정, 수요예측 결과, 38 IR 자료, Seibro 보호예수 해제물량, 전략 연구, 쇼츠 자산 생성을 한곳에서 보는 Streamlit 앱입니다.
 
 ## 배포 경로
@@ -7,6 +9,14 @@
 - GitHub/Streamlit 기준 폴더명은 **ipo_git**으로 고정했습니다.
 - Streamlit Community Cloud의 메인 파일 경로는 **`ipo_git/app.py`** 로 맞추면 됩니다.
 - 같은 경로를 계속 유지하려면 다음 배포부터도 저장소 안의 `ipo_git` 폴더만 교체하세요.
+
+## Python 버전 / 설치
+
+- **권장: Python 3.11.x (64-bit)**
+- 이 프로젝트는 기본 웹 앱 기준으로 **Python 3.11 설치를 권장**합니다.
+- 가장 쉬운 방법은 `setup_py311.bat` 또는 `setup_py311.sh` 를 먼저 실행한 뒤 `run_app.bat` / `run_app.sh` 를 실행하는 것입니다.
+- `integrated_lab`의 KIS 보조 스크립트까지 쓰려면 `requirements-optional.txt`도 추가 설치하세요.
+- 자세한 절차는 `PYTHON_SETUP_KR.md`를 보세요.
 
 ## 빠른 실행
 
@@ -39,3 +49,49 @@
 ## 배포 메모
 - `data/cache`의 상위 CSV/meta 파일은 배포 부트스트랩용 일정/시장 캐시입니다.
 - `run_refresh_live_cache.*` 실행 후 GitHub에 올릴 때는 `data/cache` 변경도 함께 커밋해야 Streamlit 배포본에 반영됩니다.
+
+
+## 모바일 피드 내보내기
+
+```bash
+python scripts/export_mobile_feed.py --repo . --output data/mobile/mobile-feed.json
+python scripts/export_mobile_feed.py --repo . --site-dir mobile-feed --site-base-url https://cdn.jsdelivr.net/gh/poet1004/offering_reminder@main/mobile-feed
+```
+
+이제 모바일 피드는 `IPODataHub.load_bundle()` 기준으로 만들어져 상장일과 보호예수 해제일 이벤트까지 함께 포함됩니다.
+
+Windows에서는 `run_export_mobile_feed.bat` 를 바로 실행해도 됩니다.
+
+
+## 원클릭 파이프라인
+
+모바일 피드를 GitHub/앱용으로 한 번에 갱신하려면 아래를 쓰면 됩니다.
+
+- Windows: `run_refresh_and_export_mobile_feed.bat`
+- macOS/Linux: `bash run_refresh_and_export_mobile_feed.sh`
+
+내부적으로 아래 순서로 실행됩니다.
+
+```bash
+python scripts/refresh_and_export_mobile_feed.py
+```
+
+이 스크립트는 가능한 범위에서 live cache를 갱신하고, `data/mobile/mobile-feed.json` 과 repo 루트 `mobile-feed/` 정적 폴더를 함께 다시 만들고, 마지막으로 `scripts/verify_mobile_feed.py` 로 listing / unlock 이벤트 포함 여부까지 검증합니다.
+
+
+## GitHub Pages 정적 웹
+
+GitHub Pages는 정적 사이트 전용이라 Streamlit 앱 자체를 올리지 않고, 이 저장소는 `mobile-feed/mobile-feed.json` 을 읽는 정적 웹도 함께 생성하도록 바뀌었습니다.
+
+- 정적 사이트 빌드: `run_build_pages_site.bat` 또는 `python scripts/build_pages_site.py --repo . --output _site`
+- 전체 갱신 + 정적 사이트: `run_refresh_export_and_build_pages.bat` 또는 `python scripts/refresh_export_and_build_pages.py`
+- 자세한 절차: `docs/GITHUB_PAGES_KR.md`
+
+## 느린 환경에서의 기본 동작
+
+목록 탭 성능을 위해 기본값은 **캐시/시드 우선**입니다.
+실시간 HTML 보강까지 강제로 켜고 싶으면 `.env` 또는 secrets에 아래를 넣으세요.
+
+```env
+IPO_ALLOW_INLINE_FETCH=1
+```

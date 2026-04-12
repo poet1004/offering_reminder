@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import html
 import re
 from io import StringIO
 from pathlib import Path
@@ -34,8 +35,21 @@ USER_AGENT = (
     "(KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
 )
 
+DEFAULT_HTTP_HEADERS = {
+    "User-Agent": USER_AGENT,
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+    "Accept-Language": "ko-KR,ko;q=0.9,en-US;q=0.8,en;q=0.7",
+    "Cache-Control": "no-cache",
+    "Pragma": "no-cache",
+    "Upgrade-Insecure-Requests": "1",
+}
+
 KIND_LISTING_URL = "https://kind.krx.co.kr/listinvstg/listingcompany.do?method=searchListingTypeMain"
-KIND_PUBLIC_OFFER_URL = "https://kind.krx.co.kr/listinvstg/pubofrschdl.do?method=searchPubofrScholMain"
+KIND_PUBLIC_OFFER_URL = "https://kind.krx.co.kr/listinvstg/pubofrprogcom.do?method=searchPubofrProgComMain"
+KIND_PUBLIC_OFFER_FALLBACK_URLS = [
+    KIND_PUBLIC_OFFER_URL,
+    "https://kind.krx.co.kr/listinvstg/pubofrschdl.do?method=searchPubofrScholMain",
+]
 KIND_IR_ROOM_URL = "https://kind.krx.co.kr/corpgeneral/irschedule.do?gubun=iRMaterials&method=searchIRScheduleMain"
 KIND_PUB_PRICE_URL = "https://kind.krx.co.kr/listinvstg/pubprcCmpStkprcByIssue.do?method=pubprcCmpStkprcByIssueMain"
 THIRTYEIGHT_SCHEDULE_URL = "https://www.38.co.kr/html/fund/?o=k"
@@ -83,6 +97,7 @@ _ALLOWED_38_DETAIL_LABELS = [
     "업종",
     "주간사", "주관사",
     "공모청약일", "청약일정", "공모일정",
+    "수요예측일정", "수요예측일", "기관수요예측일", "예측일",
     "신규상장일", "상장일", "상장예정일",
     "희망공모가액", "희망공모가", "공모희망가",
     "확정공모가", "공모가",
@@ -130,10 +145,14 @@ def _clean_market_value(value: Any) -> str | None:
         return None
     mapping = {
         "코스닥": "코스닥",
+        "kosdaq": "코스닥",
         "코스피": "유가증권",
+        "kospi": "유가증권",
         "유가증권": "유가증권",
+        "유가": "유가증권",
         "거래소": "유가증권",
         "코넥스": "코넥스",
+        "konex": "코넥스",
         "k-otc": "K-OTC",
         "kotc": "K-OTC",
         "비상장": "비상장",
@@ -301,9 +320,22 @@ def _scalarize_cell(value: Any) -> Any:
     return value
 
 
-def _http_get(url: str, timeout: int = 15) -> requests.Response:
-    headers = {"User-Agent": USER_AGENT}
-    response = requests.get(url, headers=headers, timeout=timeout)
+def _http_get(url: str, timeout: int = 15, *, referer: str | None = None, session: requests.Session | None = None) -> requests.Response:
+    headers = dict(DEFAULT_HTTP_HEADERS)
+    headers["Referer"] = referer or url
+    sess = session or requests.Session()
+    warmup_targets = []
+    if "kind.krx.co.kr" in url:
+        warmup_targets = ["https://kind.krx.co.kr/", "https://kind.krx.co.kr/disclosuretoday/main.do?method=searchTodayMain"]
+    elif "38.co.kr" in url:
+        warmup_targets = [THIRTYEIGHT_BASE_URL]
+    for target in warmup_targets:
+        try:
+            sess.get(target, headers=headers, timeout=min(timeout, 8))
+            break
+        except Exception:
+            continue
+    response = sess.get(url, headers=headers, timeout=timeout)
     response.raise_for_status()
     response.encoding = response.apparent_encoding or response.encoding or "utf-8"
     return response
@@ -322,6 +354,114 @@ def _normalize_columns(df: pd.DataFrame) -> pd.DataFrame:
     work.columns = _dedupe_labels(new_cols)
     work = work.dropna(axis=1, how="all")
     return work
+
+
+def _clean_html_text(html_text: str) -> str:
+    try:
+        root = lxml_html.fromstring(html_text)
+        text = root.text_content()
+    except Exception:
+        text = re.sub(r"<[^>]+>", " ", html_text)
+    text = html.unescape(text).replace("\xa0", " ")
+    text = re.sub(r"\s+", " ", text).strip()
+    return text
+
+
+def _extract_summary_body(text: str, *, header_patterns: Sequence[str]) -> str:
+    compact = re.sub(r"\s+", " ", text or "").strip()
+    if not compact:
+        return ""
+    start = -1
+    matched = ""
+    lowered = compact.lower()
+    for header in header_patterns:
+        idx = lowered.find(header.lower())
+        if idx >= 0 and (start == -1 or idx < start):
+            start = idx
+            matched = header
+    if start < 0:
+        return ""
+    section = compact[start:]
+    if matched:
+        cut = section.lower().find(matched.lower())
+        if cut >= 0:
+            section = section[cut:]
+    for token in ["검색 EXCEL", "검색  EXCEL", "상기 내용은", "본 정보는", "### 공시", "홈 IPO현황", "마이페이지"]:
+        idx = section.find(token)
+        if idx > 0:
+            section = section[:idx]
+            break
+    return section.strip()
+
+
+def _parse_market_name_token(token: str) -> tuple[str | None, str | None]:
+    text = _clean_text_value(token) or ""
+    if not text:
+        return None, None
+    match = re.match(r"^(유가증권|코스닥|코넥스|K-OTC)\s+(.+)$", text)
+    if match:
+        return _clean_market_value(match.group(1)), _clean_text_value(match.group(2))
+    return None, text
+
+
+def _split_summary_rows(section: str) -> list[str]:
+    if not section:
+        return []
+    body = section
+    body = re.sub(r"^.*?목록\.\s*", "", body, count=1)
+    header_end = body.find(". ")
+    if header_end >= 0:
+        body = body[header_end + 2 :]
+    parts = [part.strip(" .") for part in re.split(r"\s*[;；]\s*", body) if part.strip(" .")]
+    return parts
+
+
+def _extract_kind_listing_summary_fallback(html_text: str) -> pd.DataFrame:
+    section = _extract_summary_body(_clean_html_text(html_text), header_patterns=["신규상장기업현황 목록.", "목록. 회사명, 상장일, 상장유형"])
+    rows: list[dict[str, Any]] = []
+    for part in _split_summary_rows(section):
+        fields = [field.strip() for field in part.split(',') if field.strip()]
+        if len(fields) < 3:
+            continue
+        market, name = _parse_market_name_token(fields[0])
+        if not name:
+            name = fields[0]
+        rows.append({
+            '회사명': name,
+            '시장구분': market,
+            '상장일': fields[1] if len(fields) >= 2 else None,
+            '상장유형': fields[2] if len(fields) >= 3 else None,
+            '증권구분': fields[3] if len(fields) >= 4 else None,
+            '업종': fields[4] if len(fields) >= 5 else None,
+            '국적': fields[5] if len(fields) >= 6 else None,
+            '상장주선인': ','.join(fields[6:]) if len(fields) >= 7 else None,
+        })
+    return pd.DataFrame(rows)
+
+
+def _extract_kind_public_summary_fallback(html_text: str) -> pd.DataFrame:
+    section = _extract_summary_body(_clean_html_text(html_text), header_patterns=["공모기업현황 목록.", "목록. 회사명, 신고서제출일, 수요예측일정"])
+    rows: list[dict[str, Any]] = []
+    for part in _split_summary_rows(section):
+        fields = [field.strip() for field in part.split(',') if field.strip()]
+        if len(fields) < 3:
+            continue
+        market, name = _parse_market_name_token(fields[0])
+        if not name:
+            name = fields[0]
+        rows.append({
+            '회사명': name,
+            '시장구분': market,
+            '신고서제출일': fields[1] if len(fields) >= 2 else None,
+            '수요예측일정': fields[2] if len(fields) >= 3 else None,
+            '청약일정': fields[3] if len(fields) >= 4 else None,
+            '납입일': fields[4] if len(fields) >= 5 else None,
+            '확정공모가': fields[5] if len(fields) >= 6 else None,
+            '공모금액': fields[6] if len(fields) >= 7 else None,
+            '상장예정일': fields[7] if len(fields) >= 8 else None,
+            '상장주선인': ','.join(fields[8:]) if len(fields) >= 9 else None,
+        })
+    return pd.DataFrame(rows)
 
 
 def _normalize_price_text(value: Any) -> float | None:
@@ -567,8 +707,10 @@ def _extract_38_mobile_detail_links(html: str) -> pd.DataFrame:
 
 
 def fetch_kind_listing_table(timeout: int = 15) -> pd.DataFrame:
-    response = _http_get(KIND_LISTING_URL, timeout=timeout)
-    table = _read_best_table(response.text, ["회사명", "상장일", "신규상장", "상장"])
+    response = _http_get(KIND_LISTING_URL, timeout=timeout, referer=KIND_LISTING_URL)
+    table = _read_best_table(response.text, ["회사명", "상장일", "상장유형", "증권구분", "상장주선인", "지정자문인"])
+    if table.empty:
+        table = _extract_kind_listing_summary_fallback(response.text)
     if table.empty:
         return pd.DataFrame()
     rename_map = {}
@@ -578,6 +720,8 @@ def fetch_kind_listing_table(timeout: int = 15) -> pd.DataFrame:
             rename_map[col] = "회사명"
         elif "상장일" in col_str:
             rename_map[col] = "상장일"
+        elif "상장유형" in col_str:
+            rename_map[col] = "상장유형"
         elif "상장주선인" in col_str or "지정자문인" in col_str:
             rename_map[col] = "주관사"
         elif "업종" in col_str:
@@ -586,41 +730,58 @@ def fetch_kind_listing_table(timeout: int = 15) -> pd.DataFrame:
             rename_map[col] = "시장구분"
         elif "종목코드" in col_str or "단축코드" in col_str:
             rename_map[col] = "종목코드"
+        elif "공모가" in col_str and "희망" not in col_str:
+            rename_map[col] = "공모가"
     return table.rename(columns=rename_map)
 
 
 def fetch_kind_public_offering_table(timeout: int = 15) -> pd.DataFrame:
-    response = _http_get(KIND_PUBLIC_OFFER_URL, timeout=timeout)
-    table = _read_best_table(response.text, ["회사명", "청약", "수요예측", "IR", "상장"])
-    if table.empty:
-        return pd.DataFrame()
-    rename_map = {}
-    for col in table.columns:
-        col_str = str(col)
-        if "회사명" in col_str:
-            rename_map[col] = "회사명"
-        elif "청약" in col_str and "일정" in col_str:
-            rename_map[col] = "청약일정"
-        elif "수요예측" in col_str and "일정" in col_str:
-            rename_map[col] = "수요예측일정"
-        elif "확정공모가" in col_str or ("공모가" in col_str and "희망" not in col_str):
-            rename_map[col] = "확정공모가"
-        elif "상장예정일" in col_str:
-            rename_map[col] = "상장예정일"
-        elif "상장주선인" in col_str or "지정자문인" in col_str:
-            rename_map[col] = "주관사"
-        elif "시장구분" in col_str or "증권구분" in col_str:
-            rename_map[col] = "시장구분"
-        elif "종목코드" in col_str or "단축코드" in col_str:
-            rename_map[col] = "종목코드"
-        elif "업종" in col_str:
-            rename_map[col] = "업종"
-    return table.rename(columns=rename_map)
+    errors: list[str] = []
+    for url in KIND_PUBLIC_OFFER_FALLBACK_URLS:
+        try:
+            response = _http_get(url, timeout=timeout, referer=url)
+            table = _read_best_table(response.text, ["회사명", "신고서제출일", "수요예측일정", "청약일정", "확정공모가", "상장예정일", "상장주선인", "지정자문인"])
+            if table.empty:
+                table = _extract_kind_public_summary_fallback(response.text)
+            if table.empty:
+                errors.append(f"{url}: parsed table empty")
+                continue
+            rename_map = {}
+            for col in table.columns:
+                col_str = str(col)
+                if "회사명" in col_str:
+                    rename_map[col] = "회사명"
+                elif "신고서제출일" in col_str:
+                    rename_map[col] = "신고서제출일"
+                elif "청약" in col_str and "일정" in col_str:
+                    rename_map[col] = "청약일정"
+                elif "수요예측" in col_str and "일정" in col_str:
+                    rename_map[col] = "수요예측일정"
+                elif "납입일" in col_str:
+                    rename_map[col] = "납입일"
+                elif "확정공모가" in col_str or ("공모가" in col_str and "희망" not in col_str):
+                    rename_map[col] = "확정공모가"
+                elif "상장예정일" in col_str or ("상장" in col_str and "예정" in col_str):
+                    rename_map[col] = "상장예정일"
+                elif "상장주선인" in col_str or "지정자문인" in col_str:
+                    rename_map[col] = "주관사"
+                elif "시장구분" in col_str or "증권구분" in col_str:
+                    rename_map[col] = "시장구분"
+                elif "종목코드" in col_str or "단축코드" in col_str:
+                    rename_map[col] = "종목코드"
+                elif "업종" in col_str:
+                    rename_map[col] = "업종"
+            out = table.rename(columns=rename_map)
+            if not out.empty:
+                return out
+        except Exception as exc:
+            errors.append(f"{url}: {exc}")
+    raise RuntimeError("KIND public offering fetch failed; " + " | ".join(errors[:6]))
 
 
 def fetch_kind_pubprice_table(timeout: int = 15) -> pd.DataFrame:
-    response = _http_get(KIND_PUB_PRICE_URL, timeout=timeout)
-    table = _read_best_table(response.text, ["회사명", "공모가", "종가", "상장일"])
+    response = _http_get(KIND_PUB_PRICE_URL, timeout=timeout, referer=KIND_PUB_PRICE_URL)
+    table = _read_best_table(response.text, ["회사명", "주관사", "상장일", "공모가", "수정공모가", "최근거래일", "등락률"])
     if table.empty:
         return pd.DataFrame()
     return table
@@ -1364,6 +1525,8 @@ def standardize_kind_public_offering_table(df: pd.DataFrame, *, today: pd.Timest
     work = _normalize_columns(df)
 
     name_col = pick_first_present(work, ["회사명", "종목명", "기업명"])
+    filing_col = pick_first_present(work, ["신고서제출일", "증권신고서제출일"])
+    forecast_col = pick_first_present(work, ["수요예측일정", "수요예측"])
     date_col = pick_first_present(work, ["청약일정", "공모일정"])
     listing_col = pick_first_present(work, ["상장예정일", "상장일"])
     broker_col = pick_first_present(work, ["상장주선인", "지정자문인", "주관사", "주간사"])
@@ -1377,8 +1540,10 @@ def standardize_kind_public_offering_table(df: pd.DataFrame, *, today: pd.Timest
         name = record.get(name_col or "")
         if pd.isna(name) or str(name).strip() == "":
             continue
+        forecast_start, _ = parse_date_range_text(_scalarize_cell(record.get(forecast_col or "")), default_year=today.year)
         sub_start, sub_end = parse_date_range_text(_scalarize_cell(record.get(date_col or "")), default_year=today.year)
         listing_date = parse_date_text(_scalarize_cell(record.get(listing_col or "")), default_year=today.year) if listing_col else None
+        filing_date = parse_date_text(_scalarize_cell(record.get(filing_col or "")), default_year=today.year) if filing_col else None
         row = build_blank_issue_row()
         row.update(
             {
@@ -1392,6 +1557,8 @@ def standardize_kind_public_offering_table(df: pd.DataFrame, *, today: pd.Timest
                 "underwriters": _clean_underwriter_value(_scalarize_cell(record.get(broker_col or ""))),
                 "subscription_start": sub_start,
                 "subscription_end": sub_end,
+                "forecast_date": forecast_start,
+                "dart_filing_date": filing_date,
                 "listing_date": listing_date,
                 "offer_price": _normalize_price_text(record.get(offer_price_col or "")),
                 "kind_url": KIND_PUBLIC_OFFER_URL,
@@ -1522,6 +1689,8 @@ def parse_38_detail_html(html_text: str, *, url: str = "") -> dict[str, Any]:
 
     subscription_text = _lookup_flat(flat, "공모청약일", "청약일정", "공모일정") or _extract_38_text_fallback(text_blob, r"공모청약일\s*[:：]?\s*([0-9./~\- ]{5,40})", r"청약일정\s*[:：]?\s*([0-9./~\- ]{5,40})")
     sub_start, sub_end = parse_date_range_text(subscription_text) if subscription_text else (None, None)
+    forecast_text = _lookup_flat(flat, "수요예측일정", "기관수요예측일", "수요예측일", "예측일") or _extract_38_text_fallback(text_blob, r"(?:수요예측일정|기관수요예측일|수요예측일|예측일)\s*[:：]?\s*([0-9./~\- ]{5,40})")
+    forecast_start, _ = parse_date_range_text(forecast_text) if forecast_text else (None, None)
     listing_text = _lookup_flat(flat, "신규상장일", "상장일", "상장예정일") or _extract_38_text_fallback(text_blob, r"(?:신규상장일|상장예정일|상장일)\s*[:：]?\s*([0-9./-]{6,20})")
     band_text = _lookup_flat(flat, "희망공모가액", "희망공모가", "공모희망가") or _extract_38_text_fallback(text_blob, r"희망공모가(?:액)?\s*[:：]?\s*([0-9,]+\s*[~〜-]\s*[0-9,]+)")
     current_text = _lookup_flat(flat, "현재가", "주가") or _extract_38_text_fallback(text_blob, r"현재가\s*[:：]?\s*([0-9,]+)")
@@ -1569,6 +1738,7 @@ def parse_38_detail_html(html_text: str, *, url: str = "") -> dict[str, Any]:
         "price_band_high": _normalize_band_pair(band_text)[1] if band_text else None,
         "retail_competition_ratio_live": _normalize_ratio_text(_lookup_flat(flat, "청약경쟁률", "일반청약경쟁률")) or _normalize_ratio_text(_extract_38_text_fallback(text_blob, r"(?:청약경쟁률|일반청약경쟁률)\s*[:：]?\s*([0-9,.:]+)")),
         "institutional_competition_ratio": _normalize_ratio_text(_lookup_flat(flat, "기관경쟁률", "수요예측경쟁률")) or _normalize_ratio_text(_extract_38_text_fallback(text_blob, r"(?:기관경쟁률|수요예측경쟁률)\s*[:：]?\s*([0-9,.:]+)")),
+        "forecast_date": forecast_start,
         "lockup_commitment_ratio": _normalize_ratio_text(_lookup_flat(flat, "의무보유확약", "확약")) or _normalize_ratio_text(_extract_38_text_fallback(text_blob, r"(?:의무보유확약|확약)\s*[:：]?\s*([0-9.,]+%)")),
         "current_price": _normalize_price_text(current_text),
         "total_offer_shares": total_offer_shares,
@@ -1603,6 +1773,7 @@ def enrich_38_schedule_with_details(
         "sector",
         "listing_date",
         "institutional_competition_ratio",
+        "forecast_date",
         "lockup_commitment_ratio",
         "current_price",
         "total_offer_shares",
