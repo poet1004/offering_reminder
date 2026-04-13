@@ -344,18 +344,19 @@ function compareByNearestDate(aValue, bValue, today) {
 function buildDashboardTimeline(items, unlockRows, today) {
   const rows = [];
   for (const item of items || []) {
+    const underwriterText = item.underwriterText && item.underwriterText !== '-' ? item.underwriterText : '';
     if (item.subscriptionStart) {
       const delta = diffDays(parseDate(item.subscriptionStart), today);
       if (delta !== null && delta >= -3 && delta <= 45) {
         rows.push({
           id: `${item.id || item.displayName}_subscription`,
           name: item.displayName,
-          market: item.market,
           stage: item.stage,
           type: 'subscription',
           date: item.subscriptionStart,
           endDate: item.subscriptionEnd,
           label: `청약 ${formatRange(item.subscriptionStart, item.subscriptionEnd)}`,
+          metaText: underwriterText,
         });
       }
     }
@@ -365,11 +366,11 @@ function buildDashboardTimeline(items, unlockRows, today) {
         rows.push({
           id: `${item.id || item.displayName}_listing`,
           name: item.displayName,
-          market: item.market,
           stage: item.stage,
           type: 'listing',
           date: item.listingDate,
           label: `상장 ${formatDateShort(item.listingDate)}`,
+          metaText: underwriterText,
         });
       }
     }
@@ -406,24 +407,26 @@ function addCalendarRangeRows(rows, start, end, buildRow) {
 function buildCalendarRows(items, unlockRows) {
   const rows = [];
   for (const item of items || []) {
+    const underwriterText = item.underwriterText && item.underwriterText !== '-' ? item.underwriterText : '';
     if (item.subscriptionStart) {
-      addCalendarRangeRows(rows, item.subscriptionStart, item.subscriptionEnd || item.subscriptionStart, (date) => ({
-        id: `${item.id || item.displayName}_subscription_${date}`,
-        date,
+      rows.push({
+        id: `${item.id || item.displayName}_subscription_${item.subscriptionStart}`,
+        date: item.subscriptionStart,
+        endDate: item.subscriptionEnd || item.subscriptionStart,
         name: item.displayName,
-        market: item.market,
+        metaText: underwriterText,
         stage: item.stage,
         type: 'subscription',
         shortLabel: '청약',
         detailText: `청약 ${formatRange(item.subscriptionStart, item.subscriptionEnd)}`,
-      }));
+      });
     }
     if (item.listingDate) {
       rows.push({
         id: `${item.id || item.displayName}_listing_${item.listingDate}`,
         date: item.listingDate,
         name: item.displayName,
-        market: item.market,
+        metaText: underwriterText,
         stage: item.stage,
         type: 'listing',
         shortLabel: '상장',
@@ -436,55 +439,13 @@ function buildCalendarRows(items, unlockRows) {
       id: row.id,
       date: row.date,
       name: row.name,
-      market: row.market,
+      metaText: '',
       stage: '보호예수',
       type: 'unlock',
       shortLabel: '해제',
       detailText: `${termLabel(row.term)} 해제${row.shares ? ` · ${formatNumber(row.shares)}주` : ''}`,
     });
   }
-  return rows.sort((a, b) => sortByDateAsc(a, b, 'date'));
-}
-
-function buildCalendarRowsMerged(feed, items, unlockRows) {
-  const rows = buildCalendarRows(items, unlockRows);
-  const events = Array.isArray(feed?.events) ? feed.events : [];
-  if (!events.length) return rows;
-
-  const seen = new Set(rows.map((row) => `${toDateKey(row.date)}|${String(row.type || '')}|${normalizeName(row.name || '')}`));
-  const byId = new Map((items || []).flatMap((item) => {
-    const keys = [];
-    if (item.id) keys.push([String(item.id), item]);
-    return keys;
-  }));
-
-  for (const event of events) {
-    const date = event?.date;
-    const type = String(event?.type || '');
-    if (!date) continue;
-    const eventType = type === 'listing' ? 'listing' : type.startsWith('unlock_') ? 'unlock' : (type === 'subscription_start' || type === 'subscription_end') ? 'subscription' : '';
-    if (!eventType) continue;
-    const item = event?.ipoId && byId.has(String(event.ipoId)) ? byId.get(String(event.ipoId)) : null;
-    const name = event?.name || item?.displayName || item?.name || '';
-    const key = `${toDateKey(date)}|${eventType}|${normalizeName(name)}`;
-    if (seen.has(key)) continue;
-    seen.add(key);
-    rows.push({
-      id: event.id || `${name}_${type}_${date}`,
-      date,
-      name,
-      market: event?.market || item?.market || '미상',
-      stage: eventType === 'unlock' ? '보호예수' : (event?.stage || item?.stage || ''),
-      type: eventType,
-      shortLabel: eventType === 'subscription' ? '청약' : eventType === 'listing' ? '상장' : '해제',
-      detailText: eventType === 'subscription'
-        ? `청약 ${formatRange(item?.subscriptionStart || date, item?.subscriptionEnd || item?.subscriptionStart || date)}`
-        : eventType === 'listing'
-          ? `상장 ${formatDateShort(date)}`
-          : `${termLabel(type.replace('unlock_', ''))} 해제${event?.shares ? ` · ${formatNumber(event.shares)}주` : ''}`,
-    });
-  }
-
   return rows.sort((a, b) => sortByDateAsc(a, b, 'date'));
 }
 
@@ -538,7 +499,7 @@ async function init() {
     state.feed = feed;
     state.backtest = Array.isArray(backtest) ? backtest : [];
     state.health = health;
-    const today = startOfDay(new Date()) || parseDate(feed.upstreamUpdatedAt || feed.generatedAt) || new Date();
+    const today = parseDate(feed.upstreamUpdatedAt || feed.generatedAt) || startOfDay(new Date()) || new Date();
     state.today = today;
     state.feedDate = parseDate(feed.upstreamUpdatedAt || feed.generatedAt);
     state.items = enrichItems(feed.items || []);
@@ -681,7 +642,7 @@ function renderDashboard() {
   const marketMood = deriveMarketMood(feed.marketQuotes || []);
   const stats = [
     { label: '30일 내 청약', value: upcomingSubscriptions, sub: '오늘 기준 예정 일정' },
-    { label: '최근 30일 상장', value: recentListings, sub: '오늘 기준 완료 일정' },
+    { label: '30일 내 상장', value: recentListings, sub: '기준일 ±30일 일정' },
     { label: '환율', value: usdkrw ? formatNumber(usdkrw.last) : '-', sub: usdkrw ? `USD/KRW ${formatRatio(usdkrw.changePct, 2)}` : '환율 데이터 대기' },
     { label: '시장 분위기', value: marketMood.label, sub: marketMood.detail },
   ];
@@ -723,7 +684,7 @@ function renderDashboard() {
           <div class="timeline-date">${escapeHtml(formatDateShort(event.date))}<br /><span class="table-sub">${escapeHtml(dday)}</span></div>
           <div class="timeline-content">
             <div class="timeline-label">${escapeHtml(event.name)}</div>
-            <div class="timeline-sub">${escapeHtml(event.label)} · ${escapeHtml(event.market || '미상')}</div>
+            <div class="timeline-sub">${escapeHtml(event.label)}${event.metaText ? ` · ${escapeHtml(event.metaText)}` : ''}</div>
           </div>
         </div>
       `;
@@ -751,7 +712,7 @@ function renderCalendar() {
   const monthEnd = new Date(monthStart.getFullYear(), monthStart.getMonth() + 1, 0);
   if (title) title.textContent = `${monthStart.getFullYear()}년 ${monthStart.getMonth() + 1}월`;
 
-  const calendarRows = buildCalendarRowsMerged(state.feed, state.items, state.unlockRows);
+  const calendarRows = buildCalendarRows(state.items, state.unlockRows);
   const rowsByDay = new Map();
   for (const row of calendarRows) {
     const date = parseDate(row.date);
@@ -784,7 +745,7 @@ function renderCalendar() {
   for (let day = 1; day <= monthEnd.getDate(); day += 1) {
     const dateKey = `${monthStart.getFullYear()}-${String(monthStart.getMonth() + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
     const dayRows = rowsByDay.get(dateKey) || [];
-    const visible = dayRows.slice(0, 3);
+    const visible = dayRows.slice(0, 2);
     const extra = Math.max(0, dayRows.length - visible.length);
     const classes = ['calendar-cell'];
     if (dayRows.length) classes.push('has-events');
@@ -794,7 +755,7 @@ function renderCalendar() {
       <button type="button" class="${classes.join(' ')}" data-calendar-date="${dateKey}">
         <div class="calendar-day">${day}</div>
         ${visible.map((row) => `
-          <div class="calendar-event-row ${escapeHtml(row.type)}">
+          <div class="calendar-event-row ${escapeHtml(row.type)}" title="${escapeHtml(`${row.name} · ${row.detailText}`)}">
             <span class="calendar-event-kind">${escapeHtml(row.shortLabel)}</span>
             <span class="calendar-event-name">${escapeHtml(row.name)}</span>
           </div>
@@ -825,7 +786,7 @@ function renderCalendar() {
       ${selectedRows.map((row) => `
         <div class="calendar-detail-item ${escapeHtml(row.type)}">
           <div><strong>${escapeHtml(row.name || '')}</strong></div>
-          <div class="meta">${escapeHtml(row.detailText)} · ${escapeHtml(row.market || '미상')}${row.stage ? ` · ${escapeHtml(row.stage)}` : ''}</div>
+          <div class="meta">${escapeHtml(row.detailText)}${row.metaText ? ` · ${escapeHtml(row.metaText)}` : ''}${row.stage ? ` · ${escapeHtml(row.stage)}` : ''}</div>
         </div>
       `).join('')}
     </div>
@@ -931,7 +892,16 @@ function renderListings() {
   const start = (currentPage - 1) * perPage;
   const pageItems = items.slice(start, start + perPage);
 
-  el('#listing-meta').textContent = `${total}건 · ${currentPage}/${pageCount} 페이지`;
+  const availability = {
+    price: items.filter((item) => item.currentPrice !== null && item.currentPrice !== undefined && item.currentPrice !== '').length,
+    institutional: items.filter((item) => item.institutionalCompetitionRatio !== null && item.institutionalCompetitionRatio !== undefined && item.institutionalCompetitionRatio !== '').length,
+    lockup: items.filter((item) => item.lockupCommitmentRatio !== null && item.lockupCommitmentRatio !== undefined && item.lockupCommitmentRatio !== '').length,
+    signal: items.filter((item) => item.signalText && item.signalText !== '-').length,
+  };
+  const missingDataNote = availability.price === 0 && availability.institutional === 0 && availability.lockup === 0 && availability.signal === 0
+    ? ' · 시세/기관/확약 데이터 미반영'
+    : '';
+  el('#listing-meta').textContent = `${total}건 · ${currentPage}/${pageCount} 페이지${missingDataNote}`;
   el('#listing-table tbody').innerHTML = pageItems.map((item) => {
     const returnClass = item.returnPct === null ? '' : item.returnPct >= 0 ? 'good' : 'bad';
     return `

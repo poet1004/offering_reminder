@@ -63,11 +63,13 @@ jobs:
         run: |
           export PUBLIC_DATA_SERVICE_KEY="${PUBLIC_DATA_SERVICE_KEY:-$KSD_PUBLIC_DATA_SERVICE_KEY}"
           export KSD_PUBLIC_DATA_SERVICE_KEY="${KSD_PUBLIC_DATA_SERVICE_KEY:-$PUBLIC_DATA_SERVICE_KEY}"
+          mkdir -p ipo_git/data/runtime
           if [ -z "${PUBLIC_DATA_SERVICE_KEY}${KSD_PUBLIC_DATA_SERVICE_KEY}" ]; then
+            echo '{"ok": false, "reason": "PUBLIC_DATA_SERVICE_KEY missing"}' > ipo_git/data/runtime/official_api_status.json
             echo "PUBLIC_DATA_SERVICE_KEY missing; skip official cache refresh"
             exit 0
           fi
-          python ipo_git/scripts/refresh_official_api_cache.py --data-dir ipo_git/data
+          python ipo_git/scripts/refresh_official_api_cache.py --data-dir ipo_git/data | tee ipo_git/data/runtime/official_api_status.json
 
       - name: Resolve public URLs
         shell: bash
@@ -92,7 +94,7 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add mobile-feed ipo_git/data/cache/*.csv ipo_git/data/cache/*.json || true
+          git add mobile-feed ipo_git/data/cache/*.csv ipo_git/data/cache/*.json ipo_git/data/runtime/*.json || true
           if git diff --cached --quiet; then
             echo "No changes to commit"
             exit 0

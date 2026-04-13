@@ -75,12 +75,14 @@ def build_site(repo: Path, output_dir: Path, feed_path: Path | None = None, cnam
     feed = read_json(actual_feed_path, {})
     verify = read_json(repo / 'data' / 'runtime' / 'mobile_feed_verify.json', {})
     preflight = read_json(repo / 'data' / 'runtime' / 'preflight_report.json', {})
+    official_api_status = read_json(repo / 'data' / 'runtime' / 'official_api_status.json', {})
     backtest_summary = load_backtest_summary(repo / 'data' / 'backtest' / 'versions_summary_pretty.csv')
 
     data_dir = output_dir / 'data'
     write_json(data_dir / 'mobile-feed.json', feed)
     write_json(data_dir / 'mobile-feed-verify.json', verify)
     write_json(data_dir / 'preflight-report.json', preflight)
+    write_json(data_dir / 'official-api-status.json', official_api_status)
     write_json(data_dir / 'backtest-summary.json', backtest_summary)
     try:
         feed_source_path = str(actual_feed_path.relative_to(repo))

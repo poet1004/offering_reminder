@@ -33,10 +33,10 @@ button, input, select, textarea {
 }
 
 .app-shell {
-  width: min(100%, 920px);
-  max-width: 920px;
+  max-width: 1040px;
   margin: 0 auto;
-  padding: 24px 16px 80px;
+  padding: 20px 14px 64px;
+  width: 100%;
 }
 
 .app-shell,
@@ -64,7 +64,7 @@ main,
 }
 .hero-top {
   display: flex;
-  gap: 24px;
+  gap: 20px;
   align-items: flex-start;
   justify-content: space-between;
 }
@@ -196,7 +196,7 @@ main {
 .stats-grid {
   display: grid;
   gap: 14px;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   margin: 18px 0;
 }
 .stat-card {
@@ -315,8 +315,10 @@ main {
   gap: 12px;
   grid-template-columns: repeat(3, minmax(0, 1fr));
 }
-.controls-card-listing,
-.controls-card-unlock {
+.controls-card--three {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+.controls-card--two {
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 .controls-card label,
@@ -438,18 +440,16 @@ textarea.script-box {
   width: 100%;
   max-width: 100%;
   overflow-x: auto;
-  overflow-y: hidden;
   -webkit-overflow-scrolling: touch;
 }
 .table-wrap .data-table {
   width: 100%;
   min-width: 720px;
   border-collapse: collapse;
-  table-layout: fixed;
 }
-#explorer-table { min-width: 920px; }
-#listing-table { min-width: 760px; }
-#unlock-table { min-width: 700px; }
+#explorer-table { min-width: 860px; }
+#listing-table { min-width: 720px; }
+#unlock-table { min-width: 640px; }
 .data-table th,
 .data-table td {
   padding: 12px 10px;
@@ -480,6 +480,11 @@ textarea.script-box {
 
 .calendar-panel {
   margin-top: 16px;
+  overflow-x: hidden;
+}
+.calendar-panel,
+.calendar-panel * {
+  min-width: 0;
 }
 .calendar-head {
   align-items: center;
@@ -501,8 +506,11 @@ textarea.script-box {
 }
 .calendar-grid {
   display: grid;
+  width: 100%;
+  max-width: 100%;
   grid-template-columns: repeat(7, minmax(0, 1fr));
   gap: 8px;
+  overflow: hidden;
 }
 .calendar-weekday {
   text-align: center;
@@ -512,7 +520,8 @@ textarea.script-box {
   padding: 4px 0;
 }
 .calendar-cell {
-  min-height: 122px;
+  width: 100%;
+  min-height: 132px;
   border: 1px solid var(--line);
   border-radius: 16px;
   padding: 10px;
@@ -538,30 +547,49 @@ textarea.script-box {
 .calendar-day {
   font-weight: 800;
 }
-.calendar-agenda {
-  display: grid;
-  gap: 4px;
-  min-width: 0;
-}
-.calendar-agenda-item,
+.calendar-event-row,
 .calendar-more {
-  display: block;
-  padding: 4px 6px;
-  border-radius: 10px;
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 7px;
+  border-radius: 999px;
   font-size: 11px;
-  line-height: 1.25;
-  min-width: 0;
+  line-height: 1.2;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
-.calendar-agenda-item.subscription { background: #dbeafe; color: #1d4ed8; }
-.calendar-agenda-item.listing { background: #dcfce7; color: #166534; }
-.calendar-agenda-item.unlock { background: #fef3c7; color: #a16207; }
-.calendar-agenda-name {
-  display: block;
+.calendar-event-row {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  align-items: center;
+  gap: 6px;
+  color: #0f172a;
+  border: 1px solid #dbe3f0;
+  background: #f8fbff;
+}
+.calendar-event-row .calendar-event-kind {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 28px;
+  padding: 3px 6px;
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 800;
+  color: #fff;
+}
+.calendar-event-row .calendar-event-name {
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  font-size: 11px;
   font-weight: 700;
 }
+.calendar-event-row.subscription .calendar-event-kind { background: #2b6ef2; }
+.calendar-event-row.listing .calendar-event-kind { background: #1a9c5b; }
+.calendar-event-row.unlock .calendar-event-kind { background: #d97706; }
 .calendar-more {
   background: #eef2ff;
   color: #334155;
@@ -590,8 +618,8 @@ textarea.script-box {
   color: var(--muted);
   font-size: 12px;
 }
-.calendar-detail-item.subscription { border-left: 4px solid #2563eb; }
-.calendar-detail-item.listing { border-left: 4px solid #16a34a; }
+.calendar-detail-item.subscription { border-left: 4px solid #2b6ef2; }
+.calendar-detail-item.listing { border-left: 4px solid #1a9c5b; }
 .calendar-detail-item.unlock { border-left: 4px solid #d97706; }
 .bullet-list,
 .source-status-list {
@@ -659,16 +687,22 @@ textarea.script-box {
 }
 
 
+@media (min-width: 1180px) {
+  .stats-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+}
+
 @media (max-width: 1024px) {
   .app-shell { max-width: 100%; }
   .stats-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .quote-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .quote-grid, #market-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .compact-card-grid,
   .fact-grid,
   .cache-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
-  .controls-card {
+  .controls-card,
+  .controls-card--three,
+  .controls-card--two {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
@@ -782,7 +816,8 @@ textarea.script-box {
   .fact-grid {
     grid-template-columns: 1fr;
   }
-  .quote-grid {
+  .quote-grid,
+  #market-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
     gap: 10px;
   }
@@ -808,7 +843,9 @@ textarea.script-box {
   .timeline-sub {
     font-size: 13px;
   }
-  .controls-card {
+  .controls-card,
+  .controls-card--three,
+  .controls-card--two {
     grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: 10px;
   }
@@ -854,7 +891,7 @@ textarea.script-box {
     padding: 0;
   }
   .table-wrap .data-table {
-    min-width: 620px;
+    min-width: 600px;
   }
   .calendar-toolbar {
     width: 100%;
@@ -868,7 +905,7 @@ textarea.script-box {
     gap: 6px;
   }
   .calendar-cell {
-    min-height: 96px;
+    min-height: 108px;
     padding: 8px;
     border-radius: 14px;
   }
@@ -896,6 +933,8 @@ textarea.script-box {
 
 @media (max-width: 560px) {
   .controls-card,
+  .controls-card--three,
+  .controls-card--two,
   .issue-card dl {
     grid-template-columns: 1fr;
   }
@@ -910,70 +949,75 @@ textarea.script-box {
   .stats-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
+  .calendar-panel {
+    padding: 12px;
+  }
+  .calendar-head {
+    gap: 10px;
+  }
+  .calendar-toolbar {
+    gap: 6px;
+  }
+  .calendar-nav-btn {
+    padding: 8px 10px;
+    font-size: 13px;
+  }
+  .calendar-title {
+    font-size: 15px;
+  }
   .calendar-grid {
-    grid-template-columns: repeat(7, minmax(42px, 1fr));
-    overflow-x: auto;
-    padding-bottom: 4px;
+    width: 100%;
+    grid-template-columns: repeat(5, minmax(0, 1fr)) minmax(0, 0.68fr) minmax(0, 0.68fr);
+    gap: 3px;
+    overflow: hidden;
+    padding-bottom: 0;
   }
   .calendar-weekday {
-    font-size: 11px;
+    font-size: 10px;
+    padding: 2px 0;
   }
   .calendar-cell {
-    min-height: 88px;
+    min-height: 78px;
+    padding: 5px 4px;
+    border-radius: 12px;
   }
-  .calendar-event-pill,
+  .calendar-day {
+    font-size: 12px;
+  }
+  .calendar-event-row,
   .calendar-more {
-    font-size: 10px;
-    padding: 4px 6px;
+    font-size: 9px;
+    padding: 3px 4px;
+  }
+  .calendar-event-row {
+    grid-template-columns: 20px 1fr;
+    gap: 4px;
+  }
+  .calendar-event-row .calendar-event-kind {
+    min-width: 20px;
+    padding: 2px 3px;
+    font-size: 9px;
+  }
+  .calendar-event-row .calendar-event-name {
+    font-size: 9px;
+  }
+  .calendar-detail {
+    padding: 12px;
   }
 }
 
-@media (max-width: 760px) {
-  .app-shell {
-    width: 100%;
-    max-width: 100%;
-    padding: 12px 12px 32px;
-  }
-  .stats-grid,
-  #summary-stats {
-    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
-  }
-  .quote-grid,
-  #market-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
-  }
-  .controls-card,
-  .controls-card-subscription,
-  .controls-card-listing,
-  .controls-card-unlock {
-    grid-template-columns: 1fr !important;
-  }
-  .table-wrap {
-    width: 100%;
-    max-width: 100%;
+
+@media (max-width: 420px) {
+  .calendar-grid {
+    grid-template-columns: repeat(5, minmax(0, 1fr)) minmax(0, 0.62fr) minmax(0, 0.62fr);
+    gap: 2px;
   }
   .calendar-cell {
-    min-height: 92px;
+    min-height: 72px;
+    padding: 4px 3px;
   }
-  .calendar-agenda-item,
+  .calendar-event-row,
   .calendar-more {
-    font-size: 10px;
-    padding: 3px 5px;
-  }
-}
-
-@media (max-width: 560px) {
-  .stats-grid,
-  #summary-stats,
-  .quote-grid,
-  #market-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
-  }
-  .stat-card,
-  .quote-card {
-    min-width: 0;
-  }
-  .table-wrap .data-table {
-    min-width: 640px;
+    padding: 2px 3px;
   }
 }
