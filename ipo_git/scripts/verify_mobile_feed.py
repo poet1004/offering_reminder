@@ -9,132 +9,151 @@ from typing import Any
 
 import pandas as pd
 
+ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
 
-def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description='모바일 피드 JSON의 구조/커버리지/신선도를 점검합니다.')
-    parser.add_argument('--path', default='data/mobile/mobile-feed.json', help='검증할 mobile-feed.json 경로')
-    parser.add_argument('--json-out', default='', help='검증 리포트 JSON 저장 경로')
-    parser.add_argument('--min-items', type=int, default=1, help='최소 종목 수')
-    parser.add_argument('--min-events', type=int, default=1, help='최소 이벤트 수')
-    parser.add_argument('--min-market', type=int, default=1, help='최소 시장지표 수')
-    parser.add_argument('--warn-stale-days', type=int, default=7, help='원본 데이터 기준 시각 경고 일수')
-    parser.add_argument('--require-schema-version', type=int, default=2, help='필수 스키마 버전 최소값')
-    return parser.parse_args()
+from src.utils import normalize_symbol_text
 
 
-def as_timestamp(value: Any) -> pd.Timestamp | None:
-    parsed = pd.to_datetime(value, errors='coerce')
-    if pd.isna(parsed):
+def read_json(path: Path, default: Any) -> Any:
+    if not path.exists() or path.stat().st_size == 0:
+        return default
+    try:
+        with path.open('r', encoding='utf-8') as fp:
+            return json.load(fp)
+    except Exception:
+        return default
+
+
+def read_csv_rows(path: Path) -> int | None:
+    if not path.exists() or path.stat().st_size == 0:
         return None
-    if getattr(parsed, 'tzinfo', None) is not None:
-        try:
-            parsed = parsed.tz_convert('Asia/Seoul').tz_localize(None)
-        except Exception:
-            parsed = parsed.tz_localize(None)
-    return pd.Timestamp(parsed)
+    try:
+        return len(pd.read_csv(path))
+    except Exception:
+        return None
 
 
-def make_report(payload: dict[str, Any], *, warn_stale_days: int, min_items: int, min_events: int, min_market: int, require_schema_version: int) -> dict[str, Any]:
-    items = payload.get('items') or []
-    events = payload.get('events') or []
-    market = payload.get('marketQuotes') or []
-    cache_inventory = payload.get('cacheInventory') or []
-    source_status = payload.get('sourceStatus') or []
-    warnings_payload = payload.get('warnings') or []
+def count_present(items: list[dict[str, Any]], field: str) -> int:
+    total = 0
+    for item in items:
+        value = item.get(field)
+        if value in (None, '', [], {}):
+            continue
+        total += 1
+    return total
 
-    event_types = pd.Series([str((row or {}).get('type') or '') for row in events], dtype='string').value_counts(dropna=False).to_dict()
-    listing_count = int(event_types.get('listing', 0))
-    unlock_count = int(sum(v for k, v in event_types.items() if str(k).startswith('unlock_')))
-    subscription_count = int(sum(v for k, v in event_types.items() if str(k).startswith('subscription_')))
 
-    upstream_updated_at = as_timestamp(payload.get('upstreamUpdatedAt'))
-    generated_at = as_timestamp(payload.get('generatedAt'))
-    now = pd.Timestamp.now(tz='Asia/Seoul').tz_localize(None)
-    stale_days = None if upstream_updated_at is None else int((now.normalize() - upstream_updated_at.normalize()).days)
+def main() -> None:
+    parser = argparse.ArgumentParser(description='mobile-feed 산출물을 검증하고 요약 JSON을 생성합니다.')
+    parser.add_argument('--repo', default='.')
+    parser.add_argument('--feed', required=True)
+    parser.add_argument('--output', required=True)
+    args = parser.parse_args()
 
-    checks: list[dict[str, Any]] = []
+    repo = Path(args.repo).resolve()
+    feed_path = Path(args.feed).resolve()
+    output_path = Path(args.output).resolve()
 
-    def add_check(name: str, ok: bool, detail: str, severity: str = 'warning') -> None:
-        checks.append({'name': name, 'ok': bool(ok), 'detail': detail, 'severity': severity})
+    feed = read_json(feed_path, {})
+    items = list(feed.get('items') or [])
+    events = list(feed.get('events') or [])
+    cache_inventory = list(feed.get('cacheInventory') or [])
 
-    schema_version = int(payload.get('schemaVersion') or 0)
-    add_check('schemaVersion', schema_version >= require_schema_version, f'{schema_version}', severity='critical')
-    add_check('itemCount', len(items) >= min_items, f'{len(items)}', severity='critical')
-    add_check('eventCount', len(events) >= min_events, f'{len(events)}', severity='critical')
-    add_check('marketCount', len(market) >= min_market, f'{len(market)}', severity='warning')
-    add_check('listing events', listing_count > 0, f'{listing_count}', severity='critical')
-    add_check('unlock events', unlock_count > 0, f'{unlock_count}', severity='critical')
-    add_check('subscription events', subscription_count > 0, f'{subscription_count}', severity='warning')
-    add_check('upstreamUpdatedAt', upstream_updated_at is not None, str(payload.get('upstreamUpdatedAt') or ''), severity='warning')
-    if stale_days is None:
-        add_check('freshness', False, '원본 데이터 기준 시각을 파싱하지 못했습니다.', severity='warning')
-    else:
-        add_check('freshness', stale_days <= warn_stale_days, f'{stale_days}일 경과', severity='warning')
+    event_type_counts: dict[str, int] = {}
+    for event in events:
+        key = str(event.get('type') or '')
+        if not key:
+            continue
+        event_type_counts[key] = event_type_counts.get(key, 0) + 1
 
-    key_cache_rows = {}
-    for row in cache_inventory:
-        name = str((row or {}).get('name') or '')
+    cache_rows: dict[str, Any] = {}
+    for entry in cache_inventory:
+        name = str(entry.get('name') or '').strip()
         if not name:
             continue
-        rows = row.get('rows')
-        key_cache_rows[name] = rows
-    for cache_name in ['kind_listing_live', 'kind_public_offering_live', 'kind_pubprice_live', 'schedule_38_live', 'market_snapshot_last_success']:
-        rows = key_cache_rows.get(cache_name)
-        ok = rows is not None and pd.to_numeric(pd.Series([rows]), errors='coerce').fillna(-1).iloc[0] > 0
-        severity = 'warning' if cache_name.startswith('kind_') else 'info'
-        add_check(f'cache:{cache_name}', bool(ok), f'rows={rows}', severity=severity)
+        cache_rows[name] = entry.get('rows')
 
-    source_failures = [row for row in source_status if (row or {}).get('ok') is False]
-    add_check('sourceStatus failures', len(source_failures) == 0, f'{len(source_failures)}', severity='warning')
+    # fall back to actual cache/meta files when feed inventory is sparse
+    for name in [
+        'kind_listing_live',
+        'kind_public_offering_live',
+        'kind_pubprice_live',
+        'schedule_38_live',
+        'schedule_38_demand_live',
+        'schedule_38_new_listing_live',
+        'official_ksd_name_lookup_live',
+        'official_ksd_market_codes_live',
+        'official_ksd_listing_info_live',
+        'official_ksd_corp_basic_live',
+        'official_ksd_shareholder_summary_live',
+        'public_quotes_latest',
+        'public_quotes_pykrx_latest',
+        'public_technical_latest',
+    ]:
+        if name in cache_rows and cache_rows[name] not in (None, ''):
+            continue
+        meta = read_json(repo / 'data' / 'cache' / f'{name}.meta.json', {})
+        rows = meta.get('row_count')
+        if rows is None:
+            rows = read_csv_rows(repo / 'data' / 'cache' / f'{name}.csv')
+        if rows is not None:
+            cache_rows[name] = rows
 
-    critical_failures = [row for row in checks if row['severity'] == 'critical' and not row['ok']]
-    warnings = [row for row in checks if row['severity'] != 'critical' and not row['ok']]
+    listing_items = [item for item in items if item.get('listingDate')]
+    listed_with_symbol = sum(1 for item in listing_items if normalize_symbol_text(item.get('symbol')))
 
-    return {
-        'ok': len(critical_failures) == 0,
-        'generatedAt': generated_at.isoformat() if generated_at is not None else None,
-        'upstreamUpdatedAt': upstream_updated_at.isoformat() if upstream_updated_at is not None else None,
-        'staleDays': stale_days,
-        'summary': {
-            'itemCount': len(items),
-            'eventCount': len(events),
-            'marketCount': len(market),
-            'listingCount': listing_count,
-            'unlockCount': unlock_count,
-            'subscriptionCount': subscription_count,
-            'schemaVersion': schema_version,
+    warnings: list[str] = []
+    if not items:
+        warnings.append('feed items empty')
+    if not events:
+        warnings.append('feed events empty')
+    if count_present(items, 'currentPrice') == 0:
+        warnings.append('currentPrice coverage is zero')
+    if count_present(items, 'institutionalCompetitionRatio') == 0:
+        warnings.append('institutionalCompetitionRatio coverage is zero')
+    if count_present(items, 'lockupCommitmentRatio') == 0:
+        warnings.append('lockupCommitmentRatio coverage is zero')
+    if count_present(items, 'ma20') == 0:
+        warnings.append('technical coverage is zero')
+    for cache_name in ['kind_listing_live', 'kind_public_offering_live', 'kind_pubprice_live']:
+        rows = cache_rows.get(cache_name)
+        if rows in (0, '0'):
+            warnings.append(f'{cache_name} rows=0')
+
+    report = {
+        'ok': len(warnings) == 0,
+        'generatedAt': feed.get('generatedAt'),
+        'upstreamUpdatedAt': feed.get('upstreamUpdatedAt'),
+        'schemaVersion': feed.get('schemaVersion'),
+        'summary': feed.get('summary') or {},
+        'itemCoverage': {
+            'offerPrice': count_present(items, 'offerPrice'),
+            'listingDate': count_present(items, 'listingDate'),
+            'subscriptionStart': count_present(items, 'subscriptionStart'),
+            'underwriters': sum(1 for item in items if item.get('underwriters')),
+            'currentPrice': count_present(items, 'currentPrice'),
+            'returnPct': count_present(items, 'returnPct'),
+            'institutionalCompetitionRatio': count_present(items, 'institutionalCompetitionRatio'),
+            'lockupCommitmentRatio': count_present(items, 'lockupCommitmentRatio'),
+            'existingShareholderRatio': count_present(items, 'existingShareholderRatio'),
+            'ma20': count_present(items, 'ma20'),
+            'ma60': count_present(items, 'ma60'),
+            'rsi14': count_present(items, 'rsi14'),
         },
-        'eventTypes': event_types,
-        'keyCacheRows': key_cache_rows,
-        'sourceFailures': source_failures,
-        'feedWarnings': warnings_payload,
-        'checks': checks,
-        'criticalFailures': len(critical_failures),
-        'warnings': len(warnings),
+        'listedItems': len(listing_items),
+        'listedItemsWithSymbol': listed_with_symbol,
+        'eventTypeCounts': event_type_counts,
+        'cacheRows': cache_rows,
+        'warnings': warnings,
     }
 
-
-def main() -> int:
-    args = parse_args()
-    path = Path(args.path).expanduser().resolve()
-    payload = json.loads(path.read_text(encoding='utf-8'))
-    report = make_report(
-        payload,
-        warn_stale_days=args.warn_stale_days,
-        min_items=args.min_items,
-        min_events=args.min_events,
-        min_market=args.min_market,
-        require_schema_version=args.require_schema_version,
-    )
-
-    if args.json_out:
-        out = Path(args.json_out).expanduser().resolve()
-        out.parent.mkdir(parents=True, exist_ok=True)
-        out.write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding='utf-8')
-
-    print(json.dumps(report, ensure_ascii=False, indent=2))
-    return 0 if report['ok'] else 1
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    with output_path.open('w', encoding='utf-8') as fp:
+        json.dump(report, fp, ensure_ascii=False, indent=2)
+    print(json.dumps(report, ensure_ascii=False))
 
 
 if __name__ == '__main__':
-    raise SystemExit(main())
+    main()

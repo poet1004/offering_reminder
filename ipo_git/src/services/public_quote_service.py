@@ -61,16 +61,28 @@ class PublicQuoteService:
             name = str(row.get("name") or "").strip()
             name_key = normalize_name_key(name)
             payload: dict[str, Any] | None = None
-            if symbol and self.kis_client is not None:
-                payload = self._fetch_kis_quote(symbol, name=name, name_key=name_key)
-            if payload is None and symbol and not pykrx_snapshot.empty:
-                payload = self._lookup_pykrx_snapshot(pykrx_snapshot, symbol=symbol, name=name, name_key=name_key)
-            if payload is None and symbol:
-                payload = self._fetch_naver_quote(symbol, name=name, name_key=name_key)
-            if payload is None:
-                if recent_38 is None:
-                    recent_38 = self._fetch_recent_38_table()
-                payload = self._lookup_recent_38(recent_38, name=name, name_key=name_key, symbol=symbol)
+            try:
+                if symbol and self.kis_client is not None:
+                    payload = self._fetch_kis_quote(symbol, name=name, name_key=name_key)
+            except Exception:
+                payload = None
+            try:
+                if payload is None and symbol and not pykrx_snapshot.empty:
+                    payload = self._lookup_pykrx_snapshot(pykrx_snapshot, symbol=symbol, name=name, name_key=name_key)
+            except Exception:
+                payload = None
+            try:
+                if payload is None and symbol:
+                    payload = self._fetch_naver_quote(symbol, name=name, name_key=name_key)
+            except Exception:
+                payload = None
+            try:
+                if payload is None:
+                    if recent_38 is None:
+                        recent_38 = self._fetch_recent_38_table()
+                    payload = self._lookup_recent_38(recent_38, name=name, name_key=name_key, symbol=symbol)
+            except Exception:
+                payload = None
             if payload is None and not cache.empty:
                 payload = self._lookup_cache(cache, name_key=name_key, symbol=symbol)
             if payload is not None:

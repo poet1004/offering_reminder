@@ -12,9 +12,11 @@ on:
       - '.github/workflows/github-pages-static.yml'
       - 'ipo_git/static_pages/**'
       - 'ipo_git/scripts/build_pages_site.py'
+      - 'ipo_git/scripts/verify_mobile_feed.py'
       - 'ipo_git/scripts/refresh_export_and_build_pages.py'
       - 'mobile-feed/mobile-feed.json'
       - 'ipo_git/data/runtime/mobile_feed_verify.json'
+      - 'ipo_git/data/runtime/official_api_status.json'
       - 'ipo_git/data/backtest/versions_summary_pretty.csv'
 
 permissions:

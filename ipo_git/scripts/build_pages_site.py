@@ -73,9 +73,13 @@ def build_site(repo: Path, output_dir: Path, feed_path: Path | None = None, cnam
             raise FileNotFoundError('mobile-feed.json을 찾지 못했습니다. mobile-feed/mobile-feed.json 또는 data/mobile/mobile-feed.json 필요')
 
     feed = read_json(actual_feed_path, {})
-    verify = read_json(repo / 'data' / 'runtime' / 'mobile_feed_verify.json', {})
+    verify = read_json(repo / 'data' / 'runtime' / 'mobile_feed_verify.json', None)
+    if not verify:
+        verify = {'ok': False, 'reason': 'mobile_feed_verify.json missing'}
     preflight = read_json(repo / 'data' / 'runtime' / 'preflight_report.json', {})
-    official_api_status = read_json(repo / 'data' / 'runtime' / 'official_api_status.json', {})
+    official_api_status = read_json(repo / 'data' / 'runtime' / 'official_api_status.json', None)
+    if not official_api_status:
+        official_api_status = {'ok': False, 'reason': 'official_api_status.json missing'}
     backtest_summary = load_backtest_summary(repo / 'data' / 'backtest' / 'versions_summary_pretty.csv')
 
     data_dir = output_dir / 'data'

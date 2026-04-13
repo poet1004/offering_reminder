@@ -11,12 +11,19 @@ from typing import Any
 
 import pandas as pd
 
+try:
+    from pykrx import stock as pykrx_stock
+except Exception:  # pragma: no cover - optional runtime dependency
+    pykrx_stock = None
+
 ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
+from src.services.calculations import latest_signal_from_history
 from src.services.ipo_pipeline import IPODataHub
-from src.utils import normalize_name_key, parse_date_columns, standardize_issue_frame
+from src.services.public_quote_service import PublicQuoteService
+from src.utils import normalize_name_key, normalize_symbol_text, parse_date_columns, standardize_issue_frame, today_kst
 
 
 DEFAULT_ISSUE_PATHS = [
@@ -44,6 +51,11 @@ OFFICIAL_CACHE_NAMES = [
     'official_ksd_listing_info_live',
     'official_ksd_corp_basic_live',
     'official_ksd_shareholder_summary_live',
+]
+AUX_CACHE_NAMES = [
+    'public_quotes_latest',
+    'public_quotes_pykrx_latest',
+    'public_technical_latest',
 ]
 
 EVENT_COLOR = {
@@ -188,7 +200,7 @@ def augment_cache_inventory(repo: Path, cache_inventory: pd.DataFrame) -> pd.Dat
         base['name'] = pd.NA
     existing_names = set(base['name'].dropna().astype(str).tolist())
     extra_rows: list[dict[str, Any]] = []
-    for cache_name in OFFICIAL_CACHE_NAMES + ['kind_listing_live', 'kind_public_offering_live', 'kind_pubprice_live']:
+    for cache_name in OFFICIAL_CACHE_NAMES + AUX_CACHE_NAMES + ['kind_listing_live', 'kind_public_offering_live', 'kind_pubprice_live']:
         if cache_name in existing_names:
             continue
         meta = _read_meta_json(repo / 'data' / 'cache' / f'{cache_name}.meta.json')
@@ -722,6 +734,201 @@ def load_issues_inputs(repo: Path, *, prefer_live: bool = False, use_cache: bool
     return result
 
 
+
+def _missing(value: Any) -> bool:
+    if value is None:
+        return True
+    try:
+        if pd.isna(value):
+            return True
+    except Exception:
+        pass
+    if isinstance(value, str):
+        return value.strip() == '' or value.strip() in {'-', '--', '미상', 'N/A'}
+    return False
+
+
+def _quote_cache_map(df: pd.DataFrame) -> tuple[dict[str, dict[str, Any]], dict[str, dict[str, Any]]]:
+    if df is None or df.empty:
+        return {}, {}
+    work = df.copy()
+    if 'name_key' not in work.columns and 'name' in work.columns:
+        work['name_key'] = work.get('name').map(normalize_name_key)
+    if 'symbol' in work.columns:
+        work['symbol'] = work.get('symbol').map(normalize_symbol_text)
+    symbol_map: dict[str, dict[str, Any]] = {}
+    name_map: dict[str, dict[str, Any]] = {}
+    sort_cols = [c for c in ['quote_asof', 'asof', 'symbol', 'name_key'] if c in work.columns]
+    if sort_cols:
+        work = work.sort_values(sort_cols, ascending=[False] * len(sort_cols), na_position='last')
+    for _, row in work.iterrows():
+        payload = row.to_dict()
+        symbol = text_value(row.get('symbol'))
+        name_key = text_value(row.get('name_key'))
+        if symbol and symbol not in symbol_map:
+            symbol_map[symbol] = payload
+        if name_key and name_key not in name_map:
+            name_map[name_key] = payload
+    return symbol_map, name_map
+
+
+def apply_public_quote_overlay(repo: Path, issues: pd.DataFrame) -> tuple[pd.DataFrame, dict[str, Any]]:
+    work = standardize_issue_frame(issues.copy()) if issues is not None and not issues.empty else pd.DataFrame()
+    if work.empty:
+        return work, {'source': 'public-quote-overlay', 'ok': False, 'rows': 0, 'detail': 'issues empty'}
+    listed = pd.to_datetime(work.get('listing_date'), errors='coerce')
+    today = today_kst()
+    mask = work.get('symbol', pd.Series(dtype='object')).map(normalize_symbol_text).notna() & listed.notna() & (listed.dt.normalize() <= today)
+    request_df = work.loc[mask, [c for c in ['name', 'symbol', 'market', 'listing_date'] if c in work.columns]].copy()
+    if request_df.empty:
+        return work, {'source': 'public-quote-overlay', 'ok': False, 'rows': 0, 'detail': 'listed symbols unavailable'}
+    service = PublicQuoteService(repo / 'data')
+    try:
+        quotes = service.get_quotes(request_df, max_items=max(len(request_df), 120))
+    except Exception as exc:
+        try:
+            quotes = service._read_cache()  # type: ignore[attr-defined]
+        except Exception:
+            quotes = pd.DataFrame()
+        if quotes is None or quotes.empty:
+            return work, {'source': 'public-quote-overlay', 'ok': False, 'rows': 0, 'detail': str(exc)}
+    if quotes is None or quotes.empty:
+        return work, {'source': 'public-quote-overlay', 'ok': False, 'rows': 0, 'detail': 'quote lookup returned empty'}
+    symbol_map, name_map = _quote_cache_map(quotes)
+    rows: list[dict[str, Any]] = []
+    applied = 0
+    for _, row in work.iterrows():
+        item = row.to_dict()
+        symbol = text_value(normalize_symbol_text(item.get('symbol')))
+        name_key = text_value(item.get('name_key') or normalize_name_key(item.get('name')))
+        source = symbol_map.get(symbol) if symbol else None
+        if source is None and name_key:
+            source = name_map.get(name_key)
+        if source is not None:
+            touched = False
+            for col in ['current_price', 'day_change_pct', 'market']:
+                if _missing(item.get(col)) and not _missing(source.get(col)):
+                    item[col] = source.get(col)
+                    touched = True
+            if touched:
+                applied += 1
+        rows.append(item)
+    return parse_date_columns(pd.DataFrame(rows)), {'source': 'public-quote-overlay', 'ok': applied > 0, 'rows': int(len(quotes)), 'detail': f'applied={applied}'}
+
+
+def _read_technical_cache(path: Path) -> pd.DataFrame:
+    df = read_csv_safe(path)
+    if df.empty:
+        return pd.DataFrame(columns=['symbol', 'current_price', 'ma20', 'ma60', 'rsi14', 'signal', 'asof'])
+    if 'symbol' in df.columns:
+        df['symbol'] = df.get('symbol').map(normalize_symbol_text)
+    if 'asof' in df.columns:
+        df['asof'] = pd.to_datetime(df.get('asof'), errors='coerce')
+    return df
+
+
+def _write_technical_cache(path: Path, df: pd.DataFrame) -> None:
+    if df is None or df.empty:
+        return
+    path.parent.mkdir(parents=True, exist_ok=True)
+    out = df.copy()
+    if 'asof' in out.columns:
+        out['asof'] = pd.to_datetime(out['asof'], errors='coerce')
+    out.to_csv(path, index=False)
+
+
+def _fetch_pykrx_history(symbol: str, *, lookback_days: int = 180) -> pd.DataFrame:
+    if pykrx_stock is None:
+        return pd.DataFrame(columns=['date', 'close'])
+    end = today_kst().normalize()
+    start = (end - pd.Timedelta(days=lookback_days)).normalize()
+    try:
+        raw = pykrx_stock.get_market_ohlcv_by_date(start.strftime('%Y%m%d'), end.strftime('%Y%m%d'), symbol)
+    except Exception:
+        return pd.DataFrame(columns=['date', 'close'])
+    if raw is None or raw.empty:
+        return pd.DataFrame(columns=['date', 'close'])
+    frame = raw.reset_index()
+    date_col = next((col for col in frame.columns if str(col) in {'날짜', 'date', 'Date'}), frame.columns[0])
+    close_col = next((col for col in frame.columns if str(col) in {'종가', 'close', 'Close'}), None)
+    if close_col is None:
+        return pd.DataFrame(columns=['date', 'close'])
+    out = pd.DataFrame({
+        'date': pd.to_datetime(frame[date_col], errors='coerce'),
+        'close': pd.to_numeric(frame[close_col].astype(str).str.replace(',', '', regex=False), errors='coerce'),
+    }).dropna(subset=['date', 'close'])
+    return out.sort_values('date').reset_index(drop=True)
+
+
+def apply_public_technical_overlay(repo: Path, issues: pd.DataFrame, *, max_symbols: int = 180) -> tuple[pd.DataFrame, dict[str, Any]]:
+    work = standardize_issue_frame(issues.copy()) if issues is not None and not issues.empty else pd.DataFrame()
+    if work.empty:
+        return work, {'source': 'public-technical-overlay', 'ok': False, 'rows': 0, 'detail': 'issues empty'}
+    cache_path = repo / 'data' / 'cache' / 'public_technical_latest.csv'
+    cached = _read_technical_cache(cache_path)
+    today = today_kst().normalize()
+    listed = pd.to_datetime(work.get('listing_date'), errors='coerce')
+    symbols = work.get('symbol', pd.Series(dtype='object')).map(normalize_symbol_text)
+    mask = symbols.notna() & listed.notna() & (listed.dt.normalize() <= today)
+    target = work.loc[mask].copy()
+    if target.empty:
+        return work, {'source': 'public-technical-overlay', 'ok': False, 'rows': 0, 'detail': 'listed symbols unavailable'}
+    target['symbol'] = target.get('symbol').map(normalize_symbol_text)
+    target['listing_date'] = pd.to_datetime(target.get('listing_date'), errors='coerce')
+    target = target.sort_values(['listing_date', 'symbol'], ascending=[False, True], na_position='last')
+    target_symbols = target['symbol'].dropna().drop_duplicates().tolist()[:max_symbols]
+    cache_fresh_cutoff = today - pd.Timedelta(days=7)
+    fresh_cached_symbols: set[str] = set()
+    if not cached.empty and 'asof' in cached.columns:
+        fresh_cached_symbols = set(cached.loc[cached['asof'].dt.normalize() >= cache_fresh_cutoff, 'symbol'].dropna().astype(str).tolist())
+    new_rows: list[dict[str, Any]] = []
+    for symbol in target_symbols:
+        if symbol in fresh_cached_symbols:
+            continue
+        history = _fetch_pykrx_history(symbol, lookback_days=220)
+        if history.empty or len(history) < 30:
+            continue
+        signal = latest_signal_from_history(history)
+        if all(_missing(signal.get(key)) for key in ['current_price', 'ma20', 'ma60', 'rsi14']):
+            continue
+        new_rows.append({
+            'symbol': symbol,
+            'current_price': signal.get('current_price'),
+            'ma20': signal.get('ma20'),
+            'ma60': signal.get('ma60'),
+            'rsi14': signal.get('rsi14'),
+            'signal': signal.get('signal'),
+            'asof': today,
+        })
+    merged = cached.copy() if not cached.empty else pd.DataFrame(columns=['symbol', 'current_price', 'ma20', 'ma60', 'rsi14', 'signal', 'asof'])
+    if new_rows:
+        merged = pd.concat([pd.DataFrame(new_rows), merged], ignore_index=True)
+        if 'asof' in merged.columns:
+            merged['asof'] = pd.to_datetime(merged.get('asof'), errors='coerce')
+            merged = merged.sort_values(['asof', 'symbol'], ascending=[False, True], na_position='last')
+        merged = merged.drop_duplicates(subset=['symbol'], keep='first')
+        _write_technical_cache(cache_path, merged)
+    if merged.empty:
+        return work, {'source': 'public-technical-overlay', 'ok': False, 'rows': 0, 'detail': 'technical cache empty'}
+    tech_symbol_map, _ = _quote_cache_map(merged)
+    rows: list[dict[str, Any]] = []
+    applied = 0
+    for _, row in work.iterrows():
+        item = row.to_dict()
+        symbol = text_value(normalize_symbol_text(item.get('symbol')))
+        source = tech_symbol_map.get(symbol) if symbol else None
+        if source is not None:
+            touched = False
+            for col in ['current_price', 'ma20', 'ma60', 'rsi14']:
+                if _missing(item.get(col)) and not _missing(source.get(col)):
+                    item[col] = source.get(col)
+                    touched = True
+            if touched:
+                applied += 1
+        rows.append(item)
+    return parse_date_columns(pd.DataFrame(rows)), {'source': 'public-technical-overlay', 'ok': applied > 0, 'rows': int(len(merged)), 'detail': f'targets={len(target_symbols)}, applied={applied}'}
+
+
 def build_feed(repo: Path, *, prefer_live: bool = False, use_cache: bool = True) -> dict[str, Any]:
     inputs = load_issues_inputs(repo, prefer_live=prefer_live, use_cache=use_cache)
     issues = apply_official_cache_overlays(repo, inputs['issues'])
@@ -731,6 +938,14 @@ def build_feed(repo: Path, *, prefer_live: bool = False, use_cache: bool = True)
     cache_inventory = inputs['cache_inventory'] if isinstance(inputs['cache_inventory'], pd.DataFrame) else pd.DataFrame()
     cache_inventory = augment_cache_inventory(repo, cache_inventory)
     source_status = inputs['source_status'] if isinstance(inputs['source_status'], pd.DataFrame) else pd.DataFrame()
+
+    extra_status_rows: list[dict[str, Any]] = []
+    issues, quote_status = apply_public_quote_overlay(repo, issues)
+    extra_status_rows.append(quote_status)
+    issues, technical_status = apply_public_technical_overlay(repo, issues)
+    extra_status_rows.append(technical_status)
+    if extra_status_rows:
+        source_status = pd.concat([source_status, pd.DataFrame(extra_status_rows)], ignore_index=True)
 
     items = dedupe_items([build_item(row) for _, row in issues.iterrows()])
     events: list[dict[str, Any]] = []

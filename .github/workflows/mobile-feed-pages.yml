@@ -14,6 +14,8 @@ on:
       - 'ipo_git/data/sample_ipo_events.csv'
       - 'ipo_git/data/sample_market_snapshot.csv'
       - 'ipo_git/scripts/export_mobile_feed.py'
+      - 'ipo_git/scripts/verify_mobile_feed.py'
+      - 'ipo_git/scripts/refresh_live_cache.py'
       - 'ipo_git/scripts/refresh_market_snapshot.py'
       - 'ipo_git/scripts/refresh_official_api_cache.py'
       - 'ipo_git/src/services/public_data_client.py'
@@ -47,12 +49,24 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          python -m pip install pandas requests pykrx lxml beautifulsoup4
+          python -m pip install pandas requests pykrx lxml beautifulsoup4 openpyxl
 
       - name: Refresh public market snapshot cache
         continue-on-error: true
         run: |
           python ipo_git/scripts/refresh_market_snapshot.py --data-dir ipo_git/data
+
+      - name: Refresh live issue caches
+        continue-on-error: true
+        env:
+          DART_API_KEY: ${{ secrets.DART_API_KEY }}
+        run: |
+          mkdir -p ipo_git/data/runtime
+          if python ipo_git/scripts/refresh_live_cache.py --data-dir ipo_git/data --skip-market --skip-official > ipo_git/data/runtime/live_cache_status.json; then
+            echo "live cache refresh completed"
+          else
+            echo '{"ok": false, "reason": "refresh_live_cache.py failed"}' > ipo_git/data/runtime/live_cache_status.json
+          fi
 
       - name: Refresh official public-data caches
         continue-on-error: true
@@ -69,7 +83,11 @@ jobs:
             echo "PUBLIC_DATA_SERVICE_KEY missing; skip official cache refresh"
             exit 0
           fi
-          python ipo_git/scripts/refresh_official_api_cache.py --data-dir ipo_git/data | tee ipo_git/data/runtime/official_api_status.json
+          if python ipo_git/scripts/refresh_official_api_cache.py --data-dir ipo_git/data > ipo_git/data/runtime/official_api_status.json; then
+            echo "official cache refresh completed"
+          else
+            echo '{"ok": false, "reason": "refresh_official_api_cache.py failed"}' > ipo_git/data/runtime/official_api_status.json
+          fi
 
       - name: Resolve public URLs
         shell: bash

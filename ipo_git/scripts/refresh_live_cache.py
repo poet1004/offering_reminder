@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import subprocess
 import sys
 from pathlib import Path
@@ -47,14 +48,14 @@ def main() -> None:
     if not args.skip_market:
         market = MarketService(data_dir, kis_client=KISClient.from_env())
         report["market"] = market.refresh_market_cache(periods=args.market_periods)
-    print(report)
+    print(json.dumps(report, ensure_ascii=False))
     if args.refresh_dart_corp:
         dart = DartClient.from_env()
         if dart is None:
-            print("DART_API_KEY not configured")
+            print(json.dumps({"dart_corp_rows": 0, "reason": "DART_API_KEY not configured"}, ensure_ascii=False))
         else:
             table = dart.download_corp_codes(base_dir=data_dir / "cache", force=True)
-            print({"dart_corp_rows": len(table)})
+            print(json.dumps({"dart_corp_rows": len(table)}, ensure_ascii=False))
 
 
 if __name__ == "__main__":

@@ -15,11 +15,28 @@ const els = (selector) => Array.from(document.querySelectorAll(selector));
 
 function parseDate(value) {
   if (!value) return null;
+  if (value instanceof Date) {
+    if (Number.isNaN(value.getTime())) return null;
+    return new Date(value.getFullYear(), value.getMonth(), value.getDate());
+  }
+  if (typeof value === 'number') {
+    const numericDate = new Date(value);
+    if (Number.isNaN(numericDate.getTime())) return null;
+    return new Date(numericDate.getFullYear(), numericDate.getMonth(), numericDate.getDate());
+  }
   const text = String(value).trim();
   if (!text) return null;
+  if (/^\d{4}-\d{2}-\d{2}$/.test(text)) {
+    const exact = new Date(`${text}T00:00:00`);
+    return Number.isNaN(exact.getTime()) ? null : exact;
+  }
+  const nativeDate = new Date(text);
+  if (!Number.isNaN(nativeDate.getTime())) {
+    return new Date(nativeDate.getFullYear(), nativeDate.getMonth(), nativeDate.getDate());
+  }
   const plain = text.length >= 10 ? text.slice(0, 10) : text;
-  const date = new Date(`${plain}T00:00:00`);
-  return Number.isNaN(date.getTime()) ? null : date;
+  const fallback = new Date(`${plain}T00:00:00`);
+  return Number.isNaN(fallback.getTime()) ? null : fallback;
 }
 
 function startOfDay(value = new Date()) {
@@ -347,7 +364,7 @@ function buildDashboardTimeline(items, unlockRows, today) {
     const underwriterText = item.underwriterText && item.underwriterText !== '-' ? item.underwriterText : '';
     if (item.subscriptionStart) {
       const delta = diffDays(parseDate(item.subscriptionStart), today);
-      if (delta !== null && delta >= -3 && delta <= 45) {
+      if (delta !== null && delta >= -1 && delta <= 45) {
         rows.push({
           id: `${item.id || item.displayName}_subscription`,
           name: item.displayName,
@@ -362,7 +379,7 @@ function buildDashboardTimeline(items, unlockRows, today) {
     }
     if (item.listingDate) {
       const delta = diffDays(parseDate(item.listingDate), today);
-      if (delta !== null && delta >= -30 && delta <= 45) {
+      if (delta !== null && delta >= -1 && delta <= 45) {
         rows.push({
           id: `${item.id || item.displayName}_listing`,
           name: item.displayName,
@@ -375,7 +392,8 @@ function buildDashboardTimeline(items, unlockRows, today) {
       }
     }
   }
-  return sortByNearestDate(rows, 'date', today).slice(0, 8).map((row) => ({ ...row, dateObj: parseDate(row.date) }));
+  rows.sort((a, b) => sortByDateAsc(a, b, 'date') || String(a.name || '').localeCompare(String(b.name || ''), 'ko'));
+  return rows.slice(0, 8).map((row) => ({ ...row, dateObj: parseDate(row.date) }));
 }
 
 function countUpcomingSubscriptions(items, today, days = 30) {
