@@ -18,6 +18,7 @@ on:
       - 'ipo_git/scripts/refresh_live_cache.py'
       - 'ipo_git/scripts/refresh_market_snapshot.py'
       - 'ipo_git/scripts/refresh_official_api_cache.py'
+      - 'ipo_git/scripts/write_official_api_status.py'
       - 'ipo_git/src/services/public_data_client.py'
       - 'ipo_git/scripts/build_pages_site.py'
       - 'ipo_git/static_pages/**'
@@ -51,6 +52,10 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install pandas requests pykrx lxml beautifulsoup4 openpyxl
 
+      - name: Prepare runtime directory
+        run: |
+          mkdir -p ipo_git/data/runtime
+
       - name: Refresh public market snapshot cache
         continue-on-error: true
         run: |
@@ -60,12 +65,16 @@ jobs:
         continue-on-error: true
         env:
           DART_API_KEY: ${{ secrets.DART_API_KEY }}
+        shell: bash
         run: |
-          mkdir -p ipo_git/data/runtime
-          if python ipo_git/scripts/refresh_live_cache.py --data-dir ipo_git/data --skip-market --skip-official > ipo_git/data/runtime/live_cache_status.json; then
-            echo "live cache refresh completed"
-          else
-            echo '{"ok": false, "reason": "refresh_live_cache.py failed"}' > ipo_git/data/runtime/live_cache_status.json
+          set +e
+          python ipo_git/scripts/refresh_live_cache.py --data-dir ipo_git/data --skip-market --skip-official \
+            > ipo_git/data/runtime/live_cache_status.json \
+            2> ipo_git/data/runtime/live_cache_status.stderr.txt
+          RC=$?
+          set -e
+          if [ ! -s ipo_git/data/runtime/live_cache_status.json ]; then
+            printf '{"ok": false, "reason": "refresh_live_cache.py failed", "returnCode": %s}\n' "$RC" > ipo_git/data/runtime/live_cache_status.json
           fi
 
       - name: Refresh official public-data caches
@@ -74,20 +83,27 @@ jobs:
           PUBLIC_DATA_SERVICE_KEY: ${{ secrets.PUBLIC_DATA_SERVICE_KEY }}
           KSD_PUBLIC_DATA_SERVICE_KEY: ${{ secrets.KSD_PUBLIC_DATA_SERVICE_KEY }}
           DART_API_KEY: ${{ secrets.DART_API_KEY }}
+        shell: bash
         run: |
           export PUBLIC_DATA_SERVICE_KEY="${PUBLIC_DATA_SERVICE_KEY:-$KSD_PUBLIC_DATA_SERVICE_KEY}"
           export KSD_PUBLIC_DATA_SERVICE_KEY="${KSD_PUBLIC_DATA_SERVICE_KEY:-$PUBLIC_DATA_SERVICE_KEY}"
-          mkdir -p ipo_git/data/runtime
+          RAW_OUT="ipo_git/data/runtime/official_api_status.raw.json"
+          RAW_ERR="ipo_git/data/runtime/official_api_status.stderr.txt"
           if [ -z "${PUBLIC_DATA_SERVICE_KEY}${KSD_PUBLIC_DATA_SERVICE_KEY}" ]; then
-            echo '{"ok": false, "reason": "PUBLIC_DATA_SERVICE_KEY missing"}' > ipo_git/data/runtime/official_api_status.json
-            echo "PUBLIC_DATA_SERVICE_KEY missing; skip official cache refresh"
+            printf '{"ok": false, "reason": "PUBLIC_DATA_SERVICE_KEY missing", "serviceKeyConfigured": false}\n' > ipo_git/data/runtime/official_api_status.json
             exit 0
           fi
-          if python ipo_git/scripts/refresh_official_api_cache.py --data-dir ipo_git/data > ipo_git/data/runtime/official_api_status.json; then
-            echo "official cache refresh completed"
-          else
-            echo '{"ok": false, "reason": "refresh_official_api_cache.py failed"}' > ipo_git/data/runtime/official_api_status.json
-          fi
+          set +e
+          python ipo_git/scripts/refresh_official_api_cache.py --data-dir ipo_git/data > "$RAW_OUT" 2> "$RAW_ERR"
+          RC=$?
+          set -e
+          python ipo_git/scripts/write_official_api_status.py \
+            --data-dir ipo_git/data \
+            --raw "$RAW_OUT" \
+            --stderr "$RAW_ERR" \
+            --output ipo_git/data/runtime/official_api_status.json \
+            --exit-code "$RC" \
+            --key-configured
 
       - name: Resolve public URLs
         shell: bash
@@ -107,12 +123,83 @@ jobs:
             --public-base-url "$JSDELIVR_BASE" \
             --fallback-base-url "$RAW_BASE"
 
+      - name: Verify mobile feed bundle
+        continue-on-error: true
+        shell: bash
+        run: |
+          set +e
+          python ipo_git/scripts/verify_mobile_feed.py \
+            --repo ipo_git \
+            --feed mobile-feed/mobile-feed.json \
+            --output ipo_git/data/runtime/mobile_feed_verify.json \
+            > ipo_git/data/runtime/mobile_feed_verify.stdout.json \
+            2> ipo_git/data/runtime/mobile_feed_verify.stderr.txt
+          RC=$?
+          set -e
+          if [ ! -s ipo_git/data/runtime/mobile_feed_verify.json ]; then
+            printf '{"ok": false, "reason": "verify_mobile_feed.py failed", "returnCode": %s}\n' "$RC" > ipo_git/data/runtime/mobile_feed_verify.json
+          fi
+
+      - name: Inspect generated runtime files
+        shell: bash
+        run: |
+          ls -la ipo_git/data/runtime || true
+          echo '--- official_api_status.json ---'
+          cat ipo_git/data/runtime/official_api_status.json || true
+          echo '--- mobile_feed_verify.json ---'
+          cat ipo_git/data/runtime/mobile_feed_verify.json || true
+          echo '--- live_cache_status.json ---'
+          cat ipo_git/data/runtime/live_cache_status.json || true
+
+      - name: Publish runtime summary
+        shell: bash
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          summary_path = Path('ipo_git/data/runtime')
+          def load(name):
+              path = summary_path / name
+              if not path.exists():
+                  return {'ok': False, 'reason': f'{name} missing'}
+              try:
+                  return json.loads(path.read_text(encoding='utf-8'))
+              except Exception as exc:
+                  return {'ok': False, 'reason': f'{name} invalid json: {exc}'}
+          official = load('official_api_status.json')
+          verify = load('mobile_feed_verify.json')
+          live = load('live_cache_status.json')
+          lines = [
+              '## Runtime status',
+              '',
+              f"- official_api_status.ok: {official.get('ok')}",
+              f"- official_api_status.refreshSucceeded: {official.get('refreshSucceeded')}",
+              f"- official_api_status.cachePopulated: {official.get('cachePopulated')}",
+              f"- official_api_status.cacheRows: {official.get('cacheRows')}",
+              f"- mobile_feed_verify.ok: {verify.get('ok')}",
+              f"- mobile_feed_verify.warnings: {verify.get('warnings')}",
+              f"- live_cache_status.ok: {live.get('ok')}",
+          ]
+          Path(str(Path.home())).mkdir(exist_ok=True)
+          with open(Path(__import__('os').environ['GITHUB_STEP_SUMMARY']), 'a', encoding='utf-8') as fp:
+              fp.write('\n'.join(lines) + '\n')
+          PY
+
+      - name: Upload runtime diagnostics artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: runtime-status
+          path: |
+            ipo_git/data/runtime/*.json
+            ipo_git/data/runtime/*.txt
+          if-no-files-found: warn
+
       - name: Commit generated mobile feed
         shell: bash
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add mobile-feed ipo_git/data/cache/*.csv ipo_git/data/cache/*.json ipo_git/data/runtime/*.json || true
+          git add mobile-feed ipo_git/data/cache ipo_git/data/runtime || true
           if git diff --cached --quiet; then
             echo "No changes to commit"
             exit 0

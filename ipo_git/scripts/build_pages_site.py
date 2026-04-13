@@ -80,6 +80,9 @@ def build_site(repo: Path, output_dir: Path, feed_path: Path | None = None, cnam
     official_api_status = read_json(repo / 'data' / 'runtime' / 'official_api_status.json', None)
     if not official_api_status:
         official_api_status = {'ok': False, 'reason': 'official_api_status.json missing'}
+    live_cache_status = read_json(repo / 'data' / 'runtime' / 'live_cache_status.json', None)
+    if not live_cache_status:
+        live_cache_status = {'ok': False, 'reason': 'live_cache_status.json missing'}
     backtest_summary = load_backtest_summary(repo / 'data' / 'backtest' / 'versions_summary_pretty.csv')
 
     data_dir = output_dir / 'data'
@@ -87,6 +90,7 @@ def build_site(repo: Path, output_dir: Path, feed_path: Path | None = None, cnam
     write_json(data_dir / 'mobile-feed-verify.json', verify)
     write_json(data_dir / 'preflight-report.json', preflight)
     write_json(data_dir / 'official-api-status.json', official_api_status)
+    write_json(data_dir / 'live-cache-status.json', live_cache_status)
     write_json(data_dir / 'backtest-summary.json', backtest_summary)
     try:
         feed_source_path = str(actual_feed_path.relative_to(repo))
