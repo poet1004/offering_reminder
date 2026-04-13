@@ -39,5 +39,10 @@ data/uploads/
 integrated_lab/ipo_lockup_unified_lab/kind_local_parse_debug.csv
 integrated_lab/ipo_lockup_unified_lab/workspace/seed_export_report.json
 
-# static site output
-_site/
+# Keep runtime status JSON tracked for GitHub Pages diagnostics
+!data/runtime/
+data/runtime/*
+!data/runtime/official_api_status.json
+!data/runtime/mobile_feed_verify.json
+!data/runtime/live_cache_status.json
+!data/runtime/official_api_probe.json

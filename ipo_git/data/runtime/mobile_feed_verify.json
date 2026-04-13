@@ -1,0 +1,133 @@
+{
+  "ok": true,
+  "generatedAt": "2026-04-12T14:40:48.526553",
+  "upstreamUpdatedAt": "2026-04-11T00:00:00",
+  "staleDays": 1,
+  "summary": {
+    "itemCount": 999,
+    "eventCount": 1121,
+    "marketCount": 9,
+    "listingCount": 872,
+    "unlockCount": 189,
+    "subscriptionCount": 60,
+    "schemaVersion": 2
+  },
+  "eventTypes": {
+    "listing": 872,
+    "unlock_3m": 177,
+    "subscription_start": 30,
+    "subscription_end": 30,
+    "unlock_6m": 9,
+    "unlock_1y": 2,
+    "unlock_1m": 1
+  },
+  "keyCacheRows": {
+    "kind_corp_download_live": 2768,
+    "kind_listing_live": 0,
+    "kind_public_offering_live": 0,
+    "kind_pubprice_live": 0,
+    "market_snapshot_diag_latest": 15,
+    "market_snapshot_last_success": 9,
+    "schedule_38_live": 30
+  },
+  "sourceFailures": [],
+  "feedWarnings": [
+    "kind_listing_live cache rows=0",
+    "kind_public_offering_live cache rows=0",
+    "kind_pubprice_live cache rows=0"
+  ],
+  "checks": [
+    {
+      "name": "schemaVersion",
+      "ok": true,
+      "detail": "2",
+      "severity": "critical"
+    },
+    {
+      "name": "itemCount",
+      "ok": true,
+      "detail": "999",
+      "severity": "critical"
+    },
+    {
+      "name": "eventCount",
+      "ok": true,
+      "detail": "1121",
+      "severity": "critical"
+    },
+    {
+      "name": "marketCount",
+      "ok": true,
+      "detail": "9",
+      "severity": "warning"
+    },
+    {
+      "name": "listing events",
+      "ok": true,
+      "detail": "872",
+      "severity": "critical"
+    },
+    {
+      "name": "unlock events",
+      "ok": true,
+      "detail": "189",
+      "severity": "critical"
+    },
+    {
+      "name": "subscription events",
+      "ok": true,
+      "detail": "60",
+      "severity": "warning"
+    },
+    {
+      "name": "upstreamUpdatedAt",
+      "ok": true,
+      "detail": "2026-04-11T00:00:00",
+      "severity": "warning"
+    },
+    {
+      "name": "freshness",
+      "ok": true,
+      "detail": "1일 경과",
+      "severity": "warning"
+    },
+    {
+      "name": "cache:kind_listing_live",
+      "ok": false,
+      "detail": "rows=0",
+      "severity": "warning"
+    },
+    {
+      "name": "cache:kind_public_offering_live",
+      "ok": false,
+      "detail": "rows=0",
+      "severity": "warning"
+    },
+    {
+      "name": "cache:kind_pubprice_live",
+      "ok": false,
+      "detail": "rows=0",
+      "severity": "warning"
+    },
+    {
+      "name": "cache:schedule_38_live",
+      "ok": true,
+      "detail": "rows=30",
+      "severity": "info"
+    },
+    {
+      "name": "cache:market_snapshot_last_success",
+      "ok": true,
+      "detail": "rows=9",
+      "severity": "info"
+    },
+    {
+      "name": "sourceStatus failures",
+      "ok": true,
+      "detail": "0",
+      "severity": "warning"
+    }
+  ],
+  "criticalFailures": 0,
+  "warnings": 3
+}

@@ -1,0 +1,132 @@
+{
+  "project_root": "/tmp/work_patch/ipo_git",
+  "generated_at": "2026-04-11 01:21:30",
+  "env_file": "",
+  "checks": [
+    {
+      "name": "app.py 존재",
+      "ok": true,
+      "severity": "critical",
+      "detail": "/tmp/work_patch/ipo_git/app.py"
+    },
+    {
+      "name": "requirements.txt 존재",
+      "ok": true,
+      "severity": "critical",
+      "detail": "/tmp/work_patch/ipo_git/requirements.txt"
+    },
+    {
+      "name": "Python 버전",
+      "ok": true,
+      "severity": "critical",
+      "detail": "3.13.5 (main, Jun 25 2025, 18:55:22) [GCC 14.2.0]"
+    },
+    {
+      "name": "Python 아키텍처",
+      "ok": true,
+      "severity": "warning",
+      "detail": "machine=x86_64, arch=64bit"
+    },
+    {
+      "name": ".env 파일",
+      "ok": false,
+      "severity": "info",
+      "detail": "환경변수 직접 주입"
+    },
+    {
+      "name": "패키지: pandas",
+      "ok": true,
+      "severity": "warning",
+      "detail": "import 가능"
+    },
+    {
+      "name": "패키지: streamlit",
+      "ok": false,
+      "severity": "warning",
+      "detail": "미설치"
+    },
+    {
+      "name": "패키지: requests",
+      "ok": true,
+      "severity": "warning",
+      "detail": "import 가능"
+    },
+    {
+      "name": "패키지: openpyxl",
+      "ok": true,
+      "severity": "warning",
+      "detail": "import 가능"
+    },
+    {
+      "name": "패키지: lxml",
+      "ok": true,
+      "severity": "warning",
+      "detail": "import 가능"
+    },
+    {
+      "name": "KIS 환경변수",
+      "ok": false,
+      "severity": "info",
+      "detail": ""
+    },
+    {
+      "name": "DART 환경변수",
+      "ok": false,
+      "severity": "info",
+      "detail": ""
+    },
+    {
+      "name": "IPO bundle 적재",
+      "ok": true,
+      "severity": "info",
+      "detail": "issues=1056, unlocks=379"
+    },
+    {
+      "name": "백테스트 버전",
+      "ok": true,
+      "severity": "critical",
+      "detail": "2.0, 1.5, 1.2, 1.0"
+    },
+    {
+      "name": "Unified Lab workspace",
+      "ok": true,
+      "severity": "info",
+      "detail": "workspace=/tmp/work_patch/ipo_git/integrated_lab/ipo_lockup_unified_lab/workspace, unlocks=190, signals=0, minute_jobs=190"
+    },
+    {
+      "name": "시장 스냅샷 live",
+      "ok": true,
+      "severity": "warning",
+      "detail": "source=cache(last_success)←live(YahooHTTP), rows=9, failures=15 | preview=[{'name': 'KOSPI', 'provider': 'KIS', 'detail': 'KIS 환경변수가 없어 국내지수 실시간 조회를 건너뜀'}, {'name': 'KOSDAQ', 'provider': 'KIS', 'detail': 'KIS 환경변수가 없어 국내지수 실시간 조회를 건너뜀'}, {'name': 'KOSPI', 'provider': 'NaverFinance', 'detail': 'HTTPSConnectionPool(host=\\'finance.naver.com\\', port=443): Max retries exceeded with url: /sise/sise_index_day.nhn?code=KOSPI&page=1 (Caused by NameResolutionError(\"HTTPSConnection(host=\\'finance.naver.com\\', port=443): Failed to resolve \\'finance.naver.com\\' ([Errno -3] Temporary failure in name resolution)\"))'}]"
+    }
+  ],
+  "critical_failures": 0,
+  "warnings": 4,
+  "latest_exports": [],
+  "latest_runtime": [
+    {
+      "name": "issue_gap_diagnostic.csv",
+      "path": "/tmp/work_patch/ipo_git/data/runtime/issue_gap_diagnostic.csv",
+      "size_bytes": 48102,
+      "modified_at": "2026-04-09 15:54:05"
+    },
+    {
+      "name": "mobile_feed_pipeline_report.json",
+      "path": "/tmp/work_patch/ipo_git/data/runtime/mobile_feed_pipeline_report.json",
+      "size_bytes": 4627,
+      "modified_at": "2026-04-10 16:20:03"
+    },
+    {
+      "name": "mobile_feed_verify.json",
+      "path": "/tmp/work_patch/ipo_git/data/runtime/mobile_feed_verify.json",
+      "size_bytes": 2797,
+      "modified_at": "2026-04-10 16:20:03"
+    },
+    {
+      "name": "issue_gap_diagnostic_summary.json",
+      "path": "/tmp/work_patch/ipo_git/data/runtime/issue_gap_diagnostic_summary.json",
+      "size_bytes": 215,
+      "modified_at": "2026-04-09 15:54:05"
+    }
+  ]
+}

@@ -85,7 +85,6 @@ class KSDPublicDataClient:
             os.getenv("PUBLIC_DATA_SERVICE_KEY", "").strip(),
             os.getenv("DATA_GO_SERVICE_KEY", "").strip(),
             os.getenv("SEIBRO_SERVICE_KEY", "").strip(),
-            os.getenv("KRX_PUBLIC_DATA_SERVICE_KEY", "").strip(),
         ]
         key = next((value for value in candidates if value), "")
         if not key:
@@ -100,24 +99,32 @@ class KSDPublicDataClient:
             {"ServiceKey": self.service_key, **query},
             {"serviceKey": self.service_key, **query},
         ]
+        base_urls = [base_url]
+        if str(base_url).startswith("http://"):
+            base_urls.append("https://" + str(base_url)[len("http://"):])
         last_result: XMLResult | None = None
         errors: list[str] = []
-        for candidate in attempts:
-            url = f"{base_url.rstrip('/')}/{endpoint.lstrip('/')}"
-            try:
-                response = self.session.get(url, params=candidate, timeout=self.timeout)
-                response.raise_for_status()
-            except Exception as exc:
-                errors.append(str(exc))
-                continue
-            parsed = self._parse_xml(response.content, url=response.url, params=candidate)
-            last_result = parsed
-            if parsed.ok and parsed.items:
-                return parsed
-            # 공공데이터 에러 코드나 키 미등록 메시지가 있으면 즉시 중단한다.
-            message = f"{parsed.code} {parsed.message}".strip().lower()
-            if any(token in message for token in ["service key", "not registered", "invalid", "error"]) and not parsed.items:
-                return parsed
+        for resolved_base in base_urls:
+            for candidate in attempts:
+                url = f"{resolved_base.rstrip('/')}/{endpoint.lstrip('/')}"
+                try:
+                    response = self.session.get(url, params=candidate, timeout=self.timeout)
+                    response.raise_for_status()
+                except Exception as exc:
+                    errors.append(f"{url}: {exc}")
+                    continue
+                try:
+                    parsed = self._parse_xml(response.content, url=response.url, params=candidate)
+                except Exception as exc:
+                    errors.append(f"{url}: parse failed: {exc}")
+                    continue
+                last_result = parsed
+                if parsed.ok and parsed.items:
+                    return parsed
+                # 공공데이터 에러 코드나 키 미등록 메시지가 있으면 즉시 중단한다.
+                message = f"{parsed.code} {parsed.message}".strip().lower()
+                if any(token in message for token in ["service key", "not registered", "invalid", "error"]) and not parsed.items:
+                    return parsed
         if last_result is not None:
             return last_result
         raise PublicDataAPIError("; ".join(errors) or f"public data request failed: {base_url}/{endpoint}")

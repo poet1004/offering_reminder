@@ -14,11 +14,13 @@ on:
       - 'ipo_git/scripts/build_pages_site.py'
       - 'ipo_git/scripts/verify_mobile_feed.py'
       - 'ipo_git/scripts/write_official_api_status.py'
+      - 'ipo_git/scripts/probe_public_data_api.py'
       - 'ipo_git/scripts/refresh_export_and_build_pages.py'
       - 'mobile-feed/mobile-feed.json'
       - 'ipo_git/data/runtime/mobile_feed_verify.json'
       - 'ipo_git/data/runtime/official_api_status.json'
       - 'ipo_git/data/runtime/live_cache_status.json'
+      - 'ipo_git/data/runtime/official_api_probe.json'
       - 'ipo_git/data/backtest/versions_summary_pretty.csv'
 
 permissions:

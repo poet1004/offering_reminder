@@ -19,6 +19,7 @@ on:
       - 'ipo_git/scripts/refresh_market_snapshot.py'
       - 'ipo_git/scripts/refresh_official_api_cache.py'
       - 'ipo_git/scripts/write_official_api_status.py'
+      - 'ipo_git/scripts/probe_public_data_api.py'
       - 'ipo_git/src/services/public_data_client.py'
       - 'ipo_git/scripts/build_pages_site.py'
       - 'ipo_git/static_pages/**'
@@ -105,6 +106,26 @@ jobs:
             --exit-code "$RC" \
             --key-configured
 
+      - name: Probe official public-data endpoints
+        continue-on-error: true
+        env:
+          PUBLIC_DATA_SERVICE_KEY: ${{ secrets.PUBLIC_DATA_SERVICE_KEY }}
+          KSD_PUBLIC_DATA_SERVICE_KEY: ${{ secrets.KSD_PUBLIC_DATA_SERVICE_KEY }}
+        shell: bash
+        run: |
+          export PUBLIC_DATA_SERVICE_KEY="${PUBLIC_DATA_SERVICE_KEY:-$KSD_PUBLIC_DATA_SERVICE_KEY}"
+          export KSD_PUBLIC_DATA_SERVICE_KEY="${KSD_PUBLIC_DATA_SERVICE_KEY:-$PUBLIC_DATA_SERVICE_KEY}"
+          set +e
+          python ipo_git/scripts/probe_public_data_api.py \
+            --output ipo_git/data/runtime/official_api_probe.json \
+            > ipo_git/data/runtime/official_api_probe.stdout.json \
+            2> ipo_git/data/runtime/official_api_probe.stderr.txt
+          RC=$?
+          set -e
+          if [ ! -s ipo_git/data/runtime/official_api_probe.json ]; then
+            printf '{"ok": false, "reason": "probe_public_data_api.py failed", "returnCode": %s}\n' "$RC" > ipo_git/data/runtime/official_api_probe.json
+          fi
+
       - name: Resolve public URLs
         shell: bash
         run: |
@@ -150,6 +171,8 @@ jobs:
           cat ipo_git/data/runtime/mobile_feed_verify.json || true
           echo '--- live_cache_status.json ---'
           cat ipo_git/data/runtime/live_cache_status.json || true
+          echo '--- official_api_probe.json ---'
+          cat ipo_git/data/runtime/official_api_probe.json || true
 
       - name: Publish runtime summary
         shell: bash
@@ -169,6 +192,7 @@ jobs:
           official = load('official_api_status.json')
           verify = load('mobile_feed_verify.json')
           live = load('live_cache_status.json')
+          probe = load('official_api_probe.json')
           lines = [
               '## Runtime status',
               '',
@@ -179,6 +203,8 @@ jobs:
               f"- mobile_feed_verify.ok: {verify.get('ok')}",
               f"- mobile_feed_verify.warnings: {verify.get('warnings')}",
               f"- live_cache_status.ok: {live.get('ok')}",
+              f"- official_api_probe.ok: {probe.get('ok')}",
+              f"- official_api_probe.probes: {probe.get('probes')}",
           ]
           Path(str(Path.home())).mkdir(exist_ok=True)
           with open(Path(__import__('os').environ['GITHUB_STEP_SUMMARY']), 'a', encoding='utf-8') as fp:
@@ -199,7 +225,9 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add mobile-feed ipo_git/data/cache ipo_git/data/runtime || true
+          git add mobile-feed ipo_git/data/cache || true
+          git add -f ipo_git/data/runtime/*.json || true
+          git status --short || true
           if git diff --cached --quiet; then
             echo "No changes to commit"
             exit 0
