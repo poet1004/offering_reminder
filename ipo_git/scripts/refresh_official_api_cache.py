@@ -2,11 +2,13 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 from pathlib import Path
 from typing import Any
 
 import pandas as pd
+import requests
 
 ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
@@ -18,6 +20,138 @@ from src.services.kis_client import KISClient
 from src.services.live_cache import LiveCacheStore
 from src.services.public_data_client import KSDPublicDataClient, MARKET_CODE_TO_LABEL
 from src.utils import normalize_name_key, normalize_symbol_text, parse_date_columns, safe_float, standardize_issue_frame, today_kst, load_project_env
+
+
+KRX_LISTED_INFO_URL = "https://apis.data.go.kr/1160100/service/GetKrxListedInfoService/getItemInfo"
+KRX_MARKET_LABELS = {
+    "KOSPI": "유가증권",
+    "KOSDAQ": "코스닥",
+    "KONEX": "코넥스",
+    "K-OTC": "K-OTC",
+    "KOTC": "K-OTC",
+}
+
+
+def _resolve_public_service_key() -> str:
+    for env_name in ("PUBLIC_DATA_SERVICE_KEY", "KRX_LISTED_INFO_SERVICE_KEY", "KSD_PUBLIC_DATA_SERVICE_KEY", "DATA_GO_SERVICE_KEY", "SEIBRO_SERVICE_KEY"):
+        value = os.getenv(env_name, "").strip()
+        if value:
+            return value
+    return ""
+
+
+def _candidate_bas_dates(days: int = 7) -> list[str]:
+    today = today_kst()
+    return [(today - pd.Timedelta(days=offset)).strftime("%Y%m%d") for offset in range(days + 1)]
+
+
+def _fetch_krx_listed_info(service_key: str, *, days: int = 7, timeout: int = 20) -> tuple[pd.DataFrame, dict[str, Any]]:
+    if not service_key:
+        return pd.DataFrame(), {"ok": False, "reason": "PUBLIC_DATA_SERVICE_KEY missing"}
+    attempts: list[dict[str, Any]] = []
+    for bas_dt in _candidate_bas_dates(days):
+        params = {
+            "serviceKey": service_key,
+            "numOfRows": 4000,
+            "pageNo": 1,
+            "resultType": "json",
+            "basDt": bas_dt,
+        }
+        try:
+            response = requests.get(KRX_LISTED_INFO_URL, params=params, timeout=timeout)
+            response.raise_for_status()
+            payload = response.json()
+        except Exception as exc:
+            attempts.append({"basDt": bas_dt, "ok": False, "error": str(exc)})
+            continue
+        header = (payload.get("response") or {}).get("header") or {}
+        body = (payload.get("response") or {}).get("body") or {}
+        items = ((body.get("items") or {}).get("item") or [])
+        if isinstance(items, dict):
+            items = [items]
+        total_count = int(body.get("totalCount") or 0)
+        code = str(header.get("resultCode") or "")
+        msg = str(header.get("resultMsg") or "")
+        attempts.append({"basDt": bas_dt, "ok": code in {"", "00"} and total_count > 0, "resultCode": code, "resultMsg": msg, "totalCount": total_count})
+        if code not in {"", "00"} or total_count <= 0 or not items:
+            continue
+        rows: list[dict[str, Any]] = []
+        refreshed_at = today_kst()
+        for item in items:
+            symbol = normalize_symbol_text(item.get("srtnCd"))
+            name = str(item.get("itmsNm") or "").strip()
+            if not symbol or not name:
+                continue
+            market = KRX_MARKET_LABELS.get(str(item.get("mrktCtg") or "").strip().upper(), str(item.get("mrktCtg") or "").strip() or pd.NA)
+            rows.append(
+                {
+                    "bas_dt": bas_dt,
+                    "symbol": symbol,
+                    "isin": str(item.get("isinCd") or "").strip() or pd.NA,
+                    "name": name,
+                    "name_key": normalize_name_key(name),
+                    "market": market,
+                    "crno": str(item.get("crno") or "").strip() or pd.NA,
+                    "corp_name": str(item.get("corpNm") or "").strip() or pd.NA,
+                    "listing_status": "상장",
+                    "delisting_date": pd.NaT,
+                    "source": "KRX-상장종목정보",
+                    "source_detail": response.url,
+                    "last_refresh_ts": refreshed_at,
+                }
+            )
+        frame = pd.DataFrame(rows)
+        if not frame.empty:
+            frame = parse_date_columns(frame)
+            return frame, {"ok": True, "basDt": bas_dt, "totalCount": total_count, "rows": int(len(frame)), "attempts": attempts}
+    return pd.DataFrame(), {"ok": False, "rows": 0, "attempts": attempts}
+
+
+def _krx_name_lookup_frame(df: pd.DataFrame) -> pd.DataFrame:
+    if df is None or df.empty:
+        return pd.DataFrame()
+    out = df.copy()
+    out["query_name"] = out.get("name")
+    out["query_name_key"] = out.get("name_key")
+    out["issuco_custno"] = pd.NA
+    out["share_type"] = "보통주"
+    out["issue_date"] = pd.NaT
+    out["source"] = "KRX-상장종목정보"
+    cols = [c for c in ["query_name", "query_name_key", "name", "name_key", "symbol", "isin", "issuco_custno", "share_type", "issue_date", "source", "source_detail", "last_refresh_ts"] if c in out.columns]
+    return out[cols].drop_duplicates(subset=[c for c in ["query_name_key", "symbol"] if c in out.columns], keep="first").reset_index(drop=True)
+
+
+def _krx_market_codes_frame(df: pd.DataFrame) -> pd.DataFrame:
+    if df is None or df.empty:
+        return pd.DataFrame()
+    out = df.copy()
+    code_map = {"유가증권": "11", "코스닥": "12", "코넥스": "14", "K-OTC": "13"}
+    out["market_code"] = out.get("market").map(lambda x: code_map.get(str(x), pd.NA))
+    out["source"] = "KRX-상장종목정보"
+    cols = [c for c in ["market_code", "symbol", "name", "name_key", "market", "listing_status", "delisting_date", "source", "source_detail", "last_refresh_ts"] if c in out.columns]
+    return out[cols].drop_duplicates(subset=[c for c in ["symbol", "name_key"] if c in out.columns], keep="first").reset_index(drop=True)
+
+
+def issue_frame_from_krx_master(df: pd.DataFrame) -> pd.DataFrame:
+    if df is None or df.empty:
+        return pd.DataFrame()
+    rows: list[dict[str, Any]] = []
+    for _, row in df.iterrows():
+        rows.append(
+            {
+                "ipo_id": f"krx_{row.get('name_key')}",
+                "name": row.get("name"),
+                "name_key": row.get("name_key"),
+                "symbol": row.get("symbol"),
+                "market": row.get("market"),
+                "listing_date": pd.NaT,
+                "notes": row.get("corp_name"),
+                "source": "공공데이터-KRX상장종목정보",
+                "source_detail": row.get("source_detail"),
+                "last_refresh_ts": row.get("last_refresh_ts") or today_kst(),
+            }
+        )
+    return pd.DataFrame(rows)
 
 
 def merge_cache(existing: pd.DataFrame, updates: pd.DataFrame, subset: list[str]) -> pd.DataFrame:
@@ -178,12 +312,13 @@ def main() -> None:
     data_dir = Path(args.data_dir).expanduser().resolve()
     cache = LiveCacheStore(data_dir / "cache")
     client = KSDPublicDataClient.from_env(cache_dir=data_dir / "cache")
-    if client is None:
+    public_service_key = _resolve_public_service_key()
+    if client is None and not public_service_key:
         print(json.dumps({"ok": False, "reason": "PUBLIC_DATA_SERVICE_KEY not configured"}, ensure_ascii=False))
         return
 
     today = today_kst()
-    report: dict[str, Any] = {"ok": True, "saved_at": today.isoformat()}
+    report: dict[str, Any] = {"ok": True, "saved_at": today.isoformat(), "warnings": []}
 
     issues = build_candidate_universe(data_dir, max_items=args.max_issues)
     report["candidate_issues"] = int(len(issues))
@@ -193,9 +328,40 @@ def main() -> None:
     existing_market_codes = cache.read_frame("official_ksd_market_codes_live")
     existing_corp_basic = cache.read_frame("official_ksd_corp_basic_live")
     existing_shareholder = cache.read_frame("official_ksd_shareholder_summary_live")
+    existing_krx_master = cache.read_frame("official_krx_listed_info_live")
+
+    krx_master = pd.DataFrame()
+    if public_service_key:
+        krx_updates, krx_meta = _fetch_krx_listed_info(public_service_key)
+        report["krx_probe"] = krx_meta
+        if krx_updates is not None and not krx_updates.empty:
+            krx_master = merge_cache(existing_krx_master, krx_updates, ["bas_dt", "symbol"])
+            cache.write_frame(
+                "official_krx_listed_info_live",
+                krx_master,
+                meta={"source": "KRX", "notes": "KRX 상장종목정보 API", "row_count": int(len(krx_master)), "saved_at": today.isoformat()},
+            )
+            krx_name_updates = _krx_name_lookup_frame(krx_updates)
+            if not krx_name_updates.empty:
+                existing_name_map = merge_cache(existing_name_map, krx_name_updates, ["query_name_key", "name_key", "symbol"])
+                cache.write_frame(
+                    "official_ksd_name_lookup_live",
+                    existing_name_map,
+                    meta={"source": "KRX+KSD", "notes": "종목명→단축코드/ISIN (KRX fallback 포함)", "row_count": int(len(existing_name_map)), "saved_at": today.isoformat()},
+                )
+            krx_market_updates = _krx_market_codes_frame(krx_updates)
+            if not krx_market_updates.empty:
+                existing_market_codes = merge_cache(existing_market_codes, krx_market_updates, ["symbol", "name_key"])
+                cache.write_frame(
+                    "official_ksd_market_codes_live",
+                    existing_market_codes,
+                    meta={"source": "KRX+KSD", "notes": "시장별 단축코드 전체 조회 (KRX fallback 포함)", "row_count": int(len(existing_market_codes)), "saved_at": today.isoformat()},
+                )
+        else:
+            report["warnings"].append("KRX listed info refresh returned zero rows")
 
     name_map_updates = pd.DataFrame()
-    if not args.skip_name_lookup:
+    if client is not None and not args.skip_name_lookup:
         names = select_name_lookup_candidates(issues, existing_name_map, max_items=args.max_name_lookups)
         rows: list[pd.DataFrame] = []
         for name in names:
@@ -218,7 +384,7 @@ def main() -> None:
         report["name_lookup_rows"] = int(len(existing_name_map))
         report["name_lookup_added"] = int(len(name_map_updates))
 
-    if not args.skip_market_codes:
+    if client is not None and not args.skip_market_codes:
         market_frames: list[pd.DataFrame] = []
         for market_code in ["11", "12", "14", "50"]:
             try:
@@ -239,7 +405,7 @@ def main() -> None:
         report["market_code_rows"] = int(len(existing_market_codes))
 
     # listing info for mapped ISINs
-    if isinstance(existing_name_map, pd.DataFrame) and not existing_name_map.empty:
+    if client is not None and isinstance(existing_name_map, pd.DataFrame) and not existing_name_map.empty:
         listing_frames: list[pd.DataFrame] = []
         seen_isins: set[str] = set(existing_listing.get("isin", pd.Series(dtype="object")).dropna().astype(str).tolist()) if isinstance(existing_listing, pd.DataFrame) else set()
         candidate_map = existing_name_map.copy()
@@ -272,7 +438,7 @@ def main() -> None:
             existing_listing = merged_listing
         report["listing_info_rows"] = int(len(existing_listing))
 
-    if not args.skip_corp and isinstance(existing_name_map, pd.DataFrame) and not existing_name_map.empty:
+    if client is not None and not args.skip_corp and isinstance(existing_name_map, pd.DataFrame) and not existing_name_map.empty:
         corp_frames: list[pd.DataFrame] = []
         dist_summary_frames: list[pd.DataFrame] = []
         seen_custno: set[str] = set(existing_corp_basic.get("issuco_custno", pd.Series(dtype="object")).astype(str).tolist()) if isinstance(existing_corp_basic, pd.DataFrame) else set()
@@ -332,12 +498,21 @@ def main() -> None:
         report["corp_basic_rows"] = int(len(existing_corp_basic))
         report["shareholder_summary_rows"] = int(len(existing_shareholder))
 
+    report["name_lookup_rows"] = int(len(existing_name_map)) if isinstance(existing_name_map, pd.DataFrame) else 0
+    report["market_code_rows"] = int(len(existing_market_codes)) if isinstance(existing_market_codes, pd.DataFrame) else 0
+    report["listing_info_rows"] = int(len(existing_listing)) if isinstance(existing_listing, pd.DataFrame) else 0
+    report["corp_basic_rows"] = int(len(existing_corp_basic)) if isinstance(existing_corp_basic, pd.DataFrame) else 0
+    report["shareholder_summary_rows"] = int(len(existing_shareholder)) if isinstance(existing_shareholder, pd.DataFrame) else 0
+    report["krx_listed_rows"] = int(len(krx_master)) if isinstance(krx_master, pd.DataFrame) else 0
+
     # issue-friendly overlays for app consumption
     official_issue_frames: list[pd.DataFrame] = []
     if isinstance(existing_listing, pd.DataFrame) and not existing_listing.empty:
         official_issue_frames.append(issue_frame_from_official_listing(existing_listing))
     if isinstance(existing_corp_basic, pd.DataFrame) and not existing_corp_basic.empty:
         official_issue_frames.append(issue_frame_from_official_basic(existing_corp_basic, mapping=existing_name_map))
+    if isinstance(krx_master, pd.DataFrame) and not krx_master.empty:
+        official_issue_frames.append(issue_frame_from_krx_master(krx_master))
     if official_issue_frames:
         official_issue_overlay = pd.concat([frame for frame in official_issue_frames if frame is not None and not frame.empty], ignore_index=True)
         cache.write_frame(
@@ -347,6 +522,7 @@ def main() -> None:
         )
         report["official_issue_overlay_rows"] = int(len(official_issue_overlay))
 
+    report["ok"] = any(int(report.get(key) or 0) > 0 for key in ["name_lookup_rows", "market_code_rows", "listing_info_rows", "corp_basic_rows", "shareholder_summary_rows", "official_issue_overlay_rows", "krx_listed_rows"])
     print(json.dumps(report, ensure_ascii=False))
 
 

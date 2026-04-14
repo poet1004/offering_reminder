@@ -16,6 +16,7 @@ OFFICIAL_CACHE_NAMES = [
     'official_ksd_corp_basic_live',
     'official_ksd_shareholder_summary_live',
     'official_issue_overlay_live',
+    'official_krx_listed_info_live',
 ]
 
 
@@ -95,35 +96,33 @@ def main() -> None:
 
     cache_rows = collect_cache_rows(data_dir)
     populated_cache_count = sum(1 for value in cache_rows.values() if isinstance(value, int) and value > 0)
+    ok = bool(args.key_configured) and args.exit_code == 0 and populated_cache_count > 0
 
-    ok = bool(args.key_configured) and args.exit_code == 0
-    if isinstance(raw_json, dict) and raw_json.get('ok') is False:
+    if isinstance(raw_json, dict) and raw_json.get('ok') is False and populated_cache_count == 0:
         ok = False
     if not args.key_configured:
         warnings.append('PUBLIC_DATA_SERVICE_KEY missing')
     if populated_cache_count == 0:
         warnings.append('official cache rows are all zero or missing')
-        ok = False
 
-    raw_reason = None
+    raw_reason = raw_json.get('reason') if isinstance(raw_json, dict) else None
     if isinstance(raw_json, dict):
-        raw_reason = raw_json.get('reason')
         for field in ('warnings', 'errors'):
             entries = raw_json.get(field)
             if isinstance(entries, list):
-                for entry in entries[:12]:
+                for entry in entries[:20]:
                     text = str(entry).strip()
                     if text:
                         warnings.append(text)
 
-    deduped_warnings: list[str] = []
+    deduped: list[str] = []
     seen: set[str] = set()
     for entry in warnings:
         text = str(entry).strip()
         if not text or text in seen:
             continue
         seen.add(text)
-        deduped_warnings.append(text)
+        deduped.append(text)
 
     report = {
         'ok': ok,
@@ -137,9 +136,8 @@ def main() -> None:
         'rawReason': raw_reason,
         'stdoutPreview': raw_text[:4000] if raw_json is None else '',
         'stderrPreview': stderr_text[:4000],
-        'warnings': deduped_warnings,
+        'warnings': deduped,
     }
-
     output_path.parent.mkdir(parents=True, exist_ok=True)
     with output_path.open('w', encoding='utf-8') as fp:
         json.dump(report, fp, ensure_ascii=False, indent=2)

@@ -9,10 +9,20 @@ from typing import Any
 
 
 def read_json(path: Path, default: Any) -> Any:
-    if not path.exists():
+    if not path.exists() or path.stat().st_size == 0:
         return default
-    with path.open('r', encoding='utf-8') as fp:
-        return json.load(fp)
+    try:
+        with path.open('r', encoding='utf-8') as fp:
+            return json.load(fp)
+    except Exception as exc:
+        fallback = default if default is not None else {}
+        if isinstance(fallback, dict):
+            wrapped = dict(fallback)
+            wrapped.setdefault('ok', False)
+            wrapped.setdefault('reason', f'{path.name} invalid json')
+            wrapped.setdefault('detail', str(exc))
+            return wrapped
+        return default
 
 
 def write_json(path: Path, data: Any) -> None:
@@ -25,19 +35,6 @@ def copy_tree(src: Path, dst: Path) -> None:
     if dst.exists():
         shutil.rmtree(dst)
     shutil.copytree(src, dst)
-
-
-def load_backtest_summary(csv_path: Path) -> list[dict[str, Any]]:
-    if not csv_path.exists():
-        return []
-    rows: list[dict[str, Any]] = []
-    with csv_path.open('r', encoding='utf-8-sig', newline='') as fp:
-        reader = csv.DictReader(fp)
-        for row in reader:
-            cleaned = {k: _coerce_number(v) for k, v in row.items()}
-            rows.append(cleaned)
-    rows.sort(key=lambda row: float(row.get('compound_ret') or -1e18), reverse=True)
-    return rows
 
 
 def _coerce_number(value: Any) -> Any:
@@ -56,6 +53,18 @@ def _coerce_number(value: Any) -> Any:
         return text
 
 
+def load_backtest_summary(csv_path: Path) -> list[dict[str, Any]]:
+    if not csv_path.exists():
+        return []
+    rows: list[dict[str, Any]] = []
+    with csv_path.open('r', encoding='utf-8-sig', newline='') as fp:
+        reader = csv.DictReader(fp)
+        for row in reader:
+            rows.append({k: _coerce_number(v) for k, v in row.items()})
+    rows.sort(key=lambda row: float(row.get('compound_ret') or -1e18), reverse=True)
+    return rows
+
+
 def build_site(repo: Path, output_dir: Path, feed_path: Path | None = None, cname: str = '') -> dict[str, Any]:
     static_src = repo / 'static_pages'
     if not static_src.exists():
@@ -72,20 +81,13 @@ def build_site(repo: Path, output_dir: Path, feed_path: Path | None = None, cnam
         else:
             raise FileNotFoundError('mobile-feed.json을 찾지 못했습니다. mobile-feed/mobile-feed.json 또는 data/mobile/mobile-feed.json 필요')
 
-    feed = read_json(actual_feed_path, {})
-    verify = read_json(repo / 'data' / 'runtime' / 'mobile_feed_verify.json', None)
-    if not verify:
-        verify = {'ok': False, 'reason': 'mobile_feed_verify.json missing'}
-    preflight = read_json(repo / 'data' / 'runtime' / 'preflight_report.json', {})
-    official_api_status = read_json(repo / 'data' / 'runtime' / 'official_api_status.json', None)
-    if not official_api_status:
-        official_api_status = {'ok': False, 'reason': 'official_api_status.json missing'}
-    live_cache_status = read_json(repo / 'data' / 'runtime' / 'live_cache_status.json', None)
-    if not live_cache_status:
-        live_cache_status = {'ok': False, 'reason': 'live_cache_status.json missing'}
-    official_api_probe = read_json(repo / 'data' / 'runtime' / 'official_api_probe.json', None)
-    if not official_api_probe:
-        official_api_probe = {'ok': False, 'reason': 'official_api_probe.json missing'}
+    feed = read_json(actual_feed_path, {}) or {}
+    runtime_dir = repo / 'data' / 'runtime'
+    verify = read_json(runtime_dir / 'mobile_feed_verify.json', {'ok': False, 'reason': 'mobile_feed_verify.json missing'})
+    preflight = read_json(runtime_dir / 'preflight_report.json', {})
+    official_api_status = read_json(runtime_dir / 'official_api_status.json', {'ok': False, 'reason': 'official_api_status.json missing'})
+    live_cache_status = read_json(runtime_dir / 'live_cache_status.json', {'ok': False, 'reason': 'live_cache_status.json missing'})
+    official_api_probe = read_json(runtime_dir / 'official_api_probe.json', {'ok': False, 'reason': 'official_api_probe.json missing'})
     backtest_summary = load_backtest_summary(repo / 'data' / 'backtest' / 'versions_summary_pretty.csv')
 
     data_dir = output_dir / 'data'
@@ -96,6 +98,7 @@ def build_site(repo: Path, output_dir: Path, feed_path: Path | None = None, cnam
     write_json(data_dir / 'live-cache-status.json', live_cache_status)
     write_json(data_dir / 'official-api-probe.json', official_api_probe)
     write_json(data_dir / 'backtest-summary.json', backtest_summary)
+
     try:
         feed_source_path = str(actual_feed_path.relative_to(repo))
     except ValueError:
@@ -104,20 +107,17 @@ def build_site(repo: Path, output_dir: Path, feed_path: Path | None = None, cnam
     write_json(
         data_dir / 'site-meta.json',
         {
-            'generatedAt': feed.get('generatedAt'),
-            'upstreamUpdatedAt': feed.get('upstreamUpdatedAt'),
-            'itemCount': (feed.get('summary') or {}).get('itemCount'),
-            'eventCount': (feed.get('summary') or {}).get('eventCount'),
-            'schemaVersion': feed.get('schemaVersion'),
+            'generatedAt': (feed.get('generatedAt') if isinstance(feed, dict) else None),
+            'upstreamUpdatedAt': (feed.get('upstreamUpdatedAt') if isinstance(feed, dict) else None),
+            'itemCount': ((feed.get('summary') or {}).get('itemCount') if isinstance(feed, dict) else None),
+            'eventCount': ((feed.get('summary') or {}).get('eventCount') if isinstance(feed, dict) else None),
+            'schemaVersion': (feed.get('schemaVersion') if isinstance(feed, dict) else None),
             'feedSourcePath': feed_source_path,
         },
     )
 
     (output_dir / '.nojekyll').write_text('', encoding='utf-8')
-    (output_dir / '404.html').write_text(
-        '<!doctype html><meta charset="utf-8"><meta http-equiv="refresh" content="0; url=./index.html"><title>Redirect</title>',
-        encoding='utf-8',
-    )
+    (output_dir / '404.html').write_text('Redirect', encoding='utf-8')
     if cname:
         (output_dir / 'CNAME').write_text(cname.strip() + '\n', encoding='utf-8')
 
@@ -125,9 +125,9 @@ def build_site(repo: Path, output_dir: Path, feed_path: Path | None = None, cnam
         'ok': True,
         'output_dir': str(output_dir),
         'feed_source': str(actual_feed_path),
-        'item_count': (feed.get('summary') or {}).get('itemCount'),
-        'event_count': (feed.get('summary') or {}).get('eventCount'),
-        'schema_version': feed.get('schemaVersion'),
+        'item_count': ((feed.get('summary') or {}).get('itemCount') if isinstance(feed, dict) else None),
+        'event_count': ((feed.get('summary') or {}).get('eventCount') if isinstance(feed, dict) else None),
+        'schema_version': (feed.get('schemaVersion') if isinstance(feed, dict) else None),
         'backtest_rows': len(backtest_summary),
     }
 

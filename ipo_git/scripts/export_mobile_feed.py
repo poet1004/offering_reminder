@@ -52,6 +52,7 @@ OFFICIAL_CACHE_NAMES = [
     'official_ksd_listing_info_live',
     'official_ksd_corp_basic_live',
     'official_ksd_shareholder_summary_live',
+    'official_krx_listed_info_live',
 ]
 AUX_CACHE_NAMES = [
     'public_quotes_latest',
@@ -985,7 +986,7 @@ def apply_public_technical_overlay(repo: Path, issues: pd.DataFrame, *, max_symb
     return parse_date_columns(pd.DataFrame(rows)), {'source': 'public-technical-overlay', 'ok': applied > 0, 'rows': int(len(merged)), 'detail': f'targets={len(target_symbols)}, applied={applied}'}
 
 
-def apply_dart_recent_overlay(repo: Path, issues: pd.DataFrame, *, max_items: int = 60) -> tuple[pd.DataFrame, dict[str, Any]]:
+def apply_dart_recent_overlay(repo: Path, issues: pd.DataFrame, *, max_items: int = 180) -> tuple[pd.DataFrame, dict[str, Any]]:
     work = standardize_issue_frame(issues.copy()) if issues is not None and not issues.empty else pd.DataFrame()
     if work.empty:
         return work, {'source': 'dart-auto-overlay', 'ok': False, 'rows': 0, 'detail': 'issues empty'}

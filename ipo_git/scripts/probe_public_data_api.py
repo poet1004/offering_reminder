@@ -163,13 +163,19 @@ def main() -> None:
     else:
         krx = _probe_krx(key)
         ksd_stock = _probe_ksd_stock(key)
+        diagnosis = ''
+        ksd_messages = ' | '.join(str(a.get('resultMsg') or a.get('error') or '') for a in (ksd_stock.get('attempts') or []))
+        if krx.get('ok') and not ksd_stock.get('ok') and 'SERVICE KEY IS NOT REGISTERED ERROR' in ksd_messages:
+            diagnosis = 'KRX key works, but KSD StockSvc backend still says SERVICE KEY IS NOT REGISTERED ERROR. This usually means per-service backend registration/sync lag on the provider side.'
         report = {
             'ok': bool(krx.get('ok') or ksd_stock.get('ok')),
             'serviceKeyConfigured': True,
             'manualTests': {
                 'krxListedInfo': 'https://apis.data.go.kr/1160100/service/GetKrxListedInfoService/getItemInfo?serviceKey=***&numOfRows=1&pageNo=1&resultType=xml',
                 'ksdStockSvc': 'http://api.seibro.or.kr/openapi/service/StockSvc/getKDRSecnInfo?ServiceKey=***&caltotMartTpcd=12',
+                'ksdWadl': 'https://api.seibro.or.kr/openapi/service/StockSvc?_wadl&type=xml',
             },
+            'diagnosis': diagnosis,
             'scopes': {
                 'krx': krx,
                 'ksdStock': ksd_stock,

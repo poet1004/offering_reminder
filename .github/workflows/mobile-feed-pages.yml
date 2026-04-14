@@ -164,6 +164,33 @@ jobs:
             printf '{"ok": false, "reason": "verify_mobile_feed.py failed", "returnCode": %s}\n' "$RC" > ipo_git/data/runtime/mobile_feed_verify.json
           fi
 
+      - name: Normalize runtime JSON files
+        shell: bash
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          runtime = Path('ipo_git/data/runtime')
+          runtime.mkdir(parents=True, exist_ok=True)
+          defaults = {
+              'live_cache_status.json': {'ok': False, 'reason': 'live_cache_status.json missing or invalid'},
+              'official_api_status.json': {'ok': False, 'reason': 'official_api_status.json missing or invalid'},
+              'official_api_probe.json': {'ok': False, 'reason': 'official_api_probe.json missing or invalid'},
+              'mobile_feed_verify.json': {'ok': False, 'reason': 'mobile_feed_verify.json missing or invalid'},
+          }
+          for name, fallback in defaults.items():
+              path = runtime / name
+              if not path.exists() or path.stat().st_size == 0:
+                  path.write_text(json.dumps(fallback, ensure_ascii=False, indent=2), encoding='utf-8')
+                  continue
+              try:
+                  json.loads(path.read_text(encoding='utf-8'))
+              except Exception as exc:
+                  bad = dict(fallback)
+                  bad['detail'] = str(exc)
+                  path.write_text(json.dumps(bad, ensure_ascii=False, indent=2), encoding='utf-8')
+          PY
+
       - name: Inspect generated runtime files
         shell: bash
         run: |
