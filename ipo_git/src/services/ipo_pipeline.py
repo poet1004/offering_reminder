@@ -639,36 +639,78 @@ class IPODataHub:
             return pd.DataFrame(columns=STANDARD_ISSUE_COLUMNS)
         work = external_unlocks.copy()
         work["name_key"] = work.get("name_key", pd.Series(dtype="object")).fillna(work.get("name", pd.Series(dtype="object")).map(normalize_name_key))
+        work["symbol"] = work.get("symbol", pd.Series(dtype="object")).map(normalize_symbol_text)
         work["listing_date"] = pd.to_datetime(work.get("listing_date"), errors="coerce")
-        rows: list[dict[str, Any]] = []
+        work["unlock_date"] = pd.to_datetime(work.get("unlock_date"), errors="coerce")
+        work["term"] = work.get("term", pd.Series(dtype="object")).astype(str).str.upper().str.strip()
+
+        grouped: dict[str, dict[str, Any]] = {}
+
+        def ensure_item(row: pd.Series) -> dict[str, Any]:
+            symbol = row.get("symbol")
+            name_key = row.get("name_key")
+            key = f"symbol::{symbol}" if pd.notna(symbol) and str(symbol).strip() else f"name::{name_key}"
+            item = grouped.get(key)
+            if item is None:
+                item = {col: pd.NA for col in STANDARD_ISSUE_COLUMNS}
+                item.update({
+                    "ipo_id": row.get("ipo_id") or f"strategy_{name_key}",
+                    "name": row.get("name"),
+                    "name_key": name_key,
+                    "market": row.get("market"),
+                    "symbol": symbol,
+                    "stage": row.get("stage") or pd.NA,
+                    "underwriters": row.get("lead_manager") if "lead_manager" in row.index else row.get("underwriters"),
+                    "listing_date": row.get("listing_date"),
+                    "offer_price": row.get("ipo_price") if "ipo_price" in row.index else row.get("offer_price"),
+                    "post_listing_total_shares": row.get("listed_shares") if "listed_shares" in row.index else pd.NA,
+                    "source": "strategy-overlay",
+                    "source_detail": row.get("source") or "integrated-lab-dataset",
+                    "last_refresh_ts": today_kst(),
+                })
+                grouped[key] = item
+            else:
+                if pd.isna(pd.to_datetime(item.get("listing_date"), errors="coerce")) and pd.notna(row.get("listing_date")):
+                    item["listing_date"] = row.get("listing_date")
+                if pd.isna(item.get("market")) and pd.notna(row.get("market")):
+                    item["market"] = row.get("market")
+                if pd.isna(item.get("symbol")) and pd.notna(symbol):
+                    item["symbol"] = symbol
+                if pd.isna(item.get("offer_price")) and pd.notna(row.get("ipo_price")):
+                    item["offer_price"] = row.get("ipo_price")
+                if pd.isna(item.get("post_listing_total_shares")) and pd.notna(row.get("listed_shares")):
+                    item["post_listing_total_shares"] = row.get("listed_shares")
+                current_underwriters = item.get("underwriters")
+                new_underwriters = row.get("lead_manager") if "lead_manager" in row.index else row.get("underwriters")
+                if (pd.isna(current_underwriters) or not str(current_underwriters).strip()) and pd.notna(new_underwriters):
+                    item["underwriters"] = new_underwriters
+            return item
+
+        term_map = {
+            "15D": "unlock_date_15d",
+            "1M": "unlock_date_1m",
+            "3M": "unlock_date_3m",
+            "6M": "unlock_date_6m",
+            "1Y": "unlock_date_1y",
+        }
         for _, row in work.sort_values([c for c in ["listing_date", "unlock_date", "name"] if c in work.columns], na_position="last").iterrows():
-            item = {col: pd.NA for col in STANDARD_ISSUE_COLUMNS}
-            item.update({
-                "ipo_id": row.get("ipo_id") or f"strategy_{row.get('name_key')}",
-                "name": row.get("name"),
-                "name_key": row.get("name_key"),
-                "market": row.get("market"),
-                "symbol": row.get("symbol"),
-                "stage": row.get("stage") or pd.NA,
-                "underwriters": row.get("lead_manager") if "lead_manager" in row.index else row.get("underwriters"),
-                "listing_date": row.get("listing_date"),
-                "offer_price": row.get("ipo_price") if "ipo_price" in row.index else row.get("offer_price"),
-                "post_listing_total_shares": row.get("listed_shares") if "listed_shares" in row.index else pd.NA,
-                "unlock_date_15d": row.get("unlock_date") if str(row.get("term")) == "15D" else pd.NA,
-                "unlock_date_1m": row.get("unlock_date") if str(row.get("term")) == "1M" else pd.NA,
-                "unlock_date_3m": row.get("unlock_date") if str(row.get("term")) == "3M" else pd.NA,
-                "unlock_date_6m": row.get("unlock_date") if str(row.get("term")) == "6M" else pd.NA,
-                "unlock_date_1y": row.get("unlock_date") if str(row.get("term")) == "1Y" else pd.NA,
-                "source": "strategy-overlay",
-                "source_detail": row.get("source") or "integrated-lab-dataset",
-                "last_refresh_ts": today_kst(),
-            })
-            rows.append(item)
-        if not rows:
+            item = ensure_item(row)
+            unlock_col = term_map.get(str(row.get("term")))
+            unlock_date = row.get("unlock_date")
+            if unlock_col and pd.notna(unlock_date):
+                current = pd.to_datetime(item.get(unlock_col), errors="coerce")
+                if pd.isna(current) or unlock_date < current:
+                    item[unlock_col] = unlock_date
+
+        if not grouped:
             return pd.DataFrame(columns=STANDARD_ISSUE_COLUMNS)
-        overlay = standardize_issue_frame(pd.DataFrame(rows))
-        overlay = overlay.sort_values(["listing_date", "name_key"], na_position="last").drop_duplicates(subset=["name_key"], keep="last")
+        overlay = standardize_issue_frame(pd.DataFrame(grouped.values()))
+        overlay = overlay.sort_values([c for c in ["listing_date", "name_key"] if c in overlay.columns], na_position="last")
+        dedupe_cols = [c for c in ["symbol", "name_key"] if c in overlay.columns]
+        if dedupe_cols:
+            overlay = overlay.drop_duplicates(subset=dedupe_cols, keep="first")
         return overlay.reset_index(drop=True)
+
 
     def _fetch_live_price_snapshot(self, issues: pd.DataFrame, max_symbols: int = 80) -> pd.DataFrame:
         if self.kis_client is None or issues is None or issues.empty:

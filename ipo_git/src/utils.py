@@ -499,11 +499,16 @@ def normalize_symbol_text(value: Any, *, zfill: bool = True) -> str | None:
     if re.fullmatch(r"\d+\.0", text):
         text = text[:-2]
     compact = re.sub(r"[^0-9A-Z]", "", text)
+    if re.fullmatch(r"[A-Z]\d{6}", compact):
+        compact = compact[1:]
     if re.fullmatch(r"[0-9A-Z]{6}", compact):
         return compact
-    match = re.search(r"\b([0-9A-Z]{6})\b", text)
+    match = re.search(r"\b([A-Z]\d{6}|[0-9A-Z]{6})\b", text)
     if match:
-        return match.group(1).upper()
+        token = match.group(1).upper()
+        if re.fullmatch(r"[A-Z]\d{6}", token):
+            token = token[1:]
+        return token
     match = re.search(r"\b(\d{1,6})\b", text)
     if not match:
         return None

@@ -461,7 +461,7 @@ function buildCalendarRows(items, unlockRows) {
       stage: '보호예수',
       type: 'unlock',
       shortLabel: '해제',
-      detailText: `${termLabel(row.term)} 해제${row.shares ? ` · ${formatNumber(row.shares)}주` : ''}`,
+      detailText: `${formatDateFull(row.date)} · ${termLabel(row.term)} 해제${row.shares ? ` · ${formatNumber(row.shares)}주` : ''}`,
     });
   }
   return rows.sort((a, b) => sortByDateAsc(a, b, 'date'));
@@ -991,7 +991,7 @@ function renderUnlocks() {
     <tr>
       <td><span class="table-main">${escapeHtml(row.name)}</span><span class="table-sub">${escapeHtml(row.symbol || '')}</span></td>
       <td>${escapeHtml(row.market)}</td>
-      <td class="mono">${escapeHtml(formatDateShort(row.date))}</td>
+      <td class="mono">${escapeHtml(formatDateFull(row.date))}</td>
       <td>${escapeHtml(termLabel(row.term))}</td>
       <td class="mono">${escapeHtml(formatNumber(row.shares))}</td>
       <td class="mono">${escapeHtml(formatRatio(row.ratio))}</td>

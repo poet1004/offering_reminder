@@ -34,7 +34,7 @@ class IPORepository:
         df["source_detail"] = df.get("source_detail", "packaged-sample")
         return standardize_issue_frame(df)
 
-    def auto_detect_external_unlock_dataset(self, allow_packaged_sample: bool = False) -> Path | None:
+    def _candidate_external_unlock_paths(self, allow_packaged_sample: bool = False) -> list[Path]:
         roots = [Path.cwd(), Path.cwd().parent, self.base_dir.parent]
         candidates: list[Path] = []
         for root in roots:
@@ -69,9 +69,21 @@ class IPORepository:
                 [
                     self.base_dir / "sample_unified_lab_workspace" / "unlock_out" / "unlock_events_backtest_input.csv",
                     self.base_dir.parent / "data" / "sample_unified_lab_workspace" / "unlock_out" / "unlock_events_backtest_input.csv",
+                    self.base_dir.parent / "integrated_lab" / "ipo_lockup_unified_lab" / "workspace" / "dataset_out" / "synthetic_ipo_events.csv",
                 ]
             )
-        return detect_existing_file(candidates)
+        ordered: list[Path] = []
+        seen: set[str] = set()
+        for candidate in candidates:
+            key = str(candidate.expanduser().resolve()) if candidate.exists() else str(candidate.expanduser())
+            if key in seen:
+                continue
+            seen.add(key)
+            ordered.append(candidate)
+        return ordered
+
+    def auto_detect_external_unlock_dataset(self, allow_packaged_sample: bool = False) -> Path | None:
+        return detect_existing_file(self._candidate_external_unlock_paths(allow_packaged_sample=allow_packaged_sample))
 
     def auto_detect_local_kind_export(self, include_home_dirs: bool = False) -> Path | None:
         candidates = [
@@ -134,48 +146,81 @@ class IPORepository:
 
     def load_external_unlock_events(self, dataset_path: str | Path | None = None, allow_packaged_sample: bool = False) -> pd.DataFrame:
         if dataset_path:
-            path = Path(dataset_path).expanduser().resolve()
+            candidate_paths = [Path(dataset_path).expanduser().resolve()]
         else:
-            path = self.auto_detect_external_unlock_dataset(allow_packaged_sample=allow_packaged_sample)
-        if path is None or not path.exists():
+            candidate_paths = [path for path in self._candidate_external_unlock_paths(allow_packaged_sample=allow_packaged_sample) if path.exists()]
+        if not candidate_paths:
             return pd.DataFrame(columns=["name", "symbol", "listing_date", "unlock_date", "term", "ipo_price"])
-        df = pd.read_csv(path)
-        df = parse_date_columns(df, ["listing_date", "unlock_date", "lockup_end_date"])
-        required = ["name", "symbol", "listing_date", "unlock_date", "term"]
-        for col in required:
-            if col not in df.columns:
-                df[col] = pd.NA
-        if "ipo_price" not in df.columns:
-            if "offer_price" in df.columns:
-                df["ipo_price"] = df["offer_price"]
-            else:
-                df["ipo_price"] = pd.NA
-        df["name_key"] = df.get("name_key", pd.Series(dtype="object"))
-        df["name_key"] = df["name_key"].fillna(df["name"].map(normalize_name_key))
-        optional_cols = [
-            "market",
-            "lead_manager",
-            "underwriters",
-            "listed_shares",
-            "unlock_type",
-            "holder_group",
-            "holder_name",
-            "relation",
-            "unlock_shares",
-            "unlock_ratio",
-            "lockup_end_date",
-            "source_report_nm",
-            "source_rcept_no",
-            "source_section",
-            "parse_confidence",
-            "note",
-            "offer_price",
-        ]
-        for col in optional_cols:
-            if col not in df.columns:
-                df[col] = pd.NA
-        keep_cols = required + ["ipo_price", "name_key"] + optional_cols
-        return df[keep_cols].copy()
+
+        frames: list[pd.DataFrame] = []
+        for source_path in candidate_paths:
+            try:
+                df = pd.read_csv(source_path)
+            except Exception:
+                continue
+            if df is None or df.empty:
+                continue
+            df = parse_date_columns(df, ["listing_date", "unlock_date", "lockup_end_date"])
+            required = ["name", "symbol", "listing_date", "unlock_date", "term"]
+            for col in required:
+                if col not in df.columns:
+                    df[col] = pd.NA
+            if "ipo_price" not in df.columns:
+                if "offer_price" in df.columns:
+                    df["ipo_price"] = df["offer_price"]
+                else:
+                    df["ipo_price"] = pd.NA
+            df["name_key"] = df.get("name_key", pd.Series(dtype="object"))
+            df["name_key"] = df["name_key"].fillna(df["name"].map(normalize_name_key))
+            optional_cols = [
+                "market",
+                "lead_manager",
+                "underwriters",
+                "listed_shares",
+                "unlock_type",
+                "holder_group",
+                "holder_name",
+                "relation",
+                "unlock_shares",
+                "unlock_ratio",
+                "lockup_end_date",
+                "source_report_nm",
+                "source_rcept_no",
+                "source_section",
+                "parse_confidence",
+                "note",
+                "offer_price",
+            ]
+            for col in optional_cols:
+                if col not in df.columns:
+                    df[col] = pd.NA
+            keep_cols = required + ["ipo_price", "name_key"] + optional_cols
+            work = df[keep_cols].copy()
+            work["__source_path"] = str(source_path)
+            source_name = source_path.name.lower()
+            source_rank = 3 if "synthetic_ipo_events" in source_name else 2 if "unlock_events_backtest_input" in source_name else 1
+            completeness = pd.Series(0, index=work.index, dtype='int64')
+            for col in ["unlock_shares", "unlock_ratio", "lead_manager", "underwriters", "market", "ipo_price"]:
+                completeness += work[col].notna().astype('int64')
+            work["__source_rank"] = source_rank
+            work["__completeness"] = completeness
+            frames.append(work)
+
+        if not frames:
+            return pd.DataFrame(columns=["name", "symbol", "listing_date", "unlock_date", "term", "ipo_price"])
+
+        out = pd.concat(frames, ignore_index=True)
+        out["symbol"] = out.get("symbol", pd.Series(dtype="object")).map(normalize_symbol_text)
+        out["term"] = out.get("term", pd.Series(dtype="object")).astype(str).str.upper().str.strip()
+        sort_cols = ["__source_rank", "__completeness", "unlock_date"]
+        ascending = [False, False, True]
+        out = out.sort_values(sort_cols, ascending=ascending, na_position="last")
+        dedupe_cols = [c for c in ["symbol", "name_key", "listing_date", "unlock_date", "term"] if c in out.columns]
+        if dedupe_cols:
+            out = out.drop_duplicates(subset=dedupe_cols, keep="first")
+        out = out.drop(columns=[c for c in ["__source_path", "__source_rank", "__completeness"] if c in out.columns])
+        return out.reset_index(drop=True)
+
 
     def unlock_calendar_from_issues(self, issues: pd.DataFrame) -> pd.DataFrame:
         term_map = {
