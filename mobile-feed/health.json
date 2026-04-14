@@ -1,17 +1,16 @@
 {
   "status": "ok",
-  "generatedAt": "2026-04-08T16:05:25.810486+00:00",
+  "generatedAt": "2026-04-14T17:23:53.298274+00:00",
+  "upstreamUpdatedAt": "2026-04-15T00:00:00",
   "summary": {
-    "itemCount": 30,
-    "eventCount": 60,
+    "itemCount": 1014,
+    "eventCount": 2376,
     "marketCount": 9,
     "next30d": {
-      "subscription": 8,
-      "listing": 0,
-      "unlock": 0
+      "subscription": 15,
+      "listing": 2,
+      "unlock": 20
     }
   },
-  "source": "/home/runner/work/offering_reminder/offering_reminder/ipo_git",
-  "publicBaseUrl": "https://cdn.jsdelivr.net/gh/poet1004/offering_reminder@main/mobile-feed",
-  "fallbackBaseUrl": "https://raw.githubusercontent.com/poet1004/offering_reminder/main/mobile-feed"
+  "source": "/home/runner/work/offering_reminder/offering_reminder/ipo_git"
 }

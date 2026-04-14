@@ -1,0 +1,80 @@
+{
+  "ok": true,
+  "serviceKeyConfigured": true,
+  "manualTests": {
+    "krxListedInfo": "https://apis.data.go.kr/1160100/service/GetKrxListedInfoService/getItemInfo?serviceKey=***&numOfRows=1&pageNo=1&resultType=xml",
+    "ksdStockSvc": "http://api.seibro.or.kr/openapi/service/StockSvc/getKDRSecnInfo?ServiceKey=***&caltotMartTpcd=12",
+    "ksdWadl": "https://api.seibro.or.kr/openapi/service/StockSvc?_wadl&type=xml"
+  },
+  "diagnosis": "KRX key works, but KSD StockSvc backend still says SERVICE KEY IS NOT REGISTERED ERROR. This usually means per-service backend registration/sync lag on the provider side.",
+  "scopes": {
+    "krx": {
+      "ok": true,
+      "scope": "KRX_LISTED_INFO",
+      "baseUrl": "https://apis.data.go.kr/1160100/service/GetKrxListedInfoService",
+      "endpoint": "getItemInfo",
+      "httpStatus": 200,
+      "resultCode": "00",
+      "resultMsg": "NORMAL SERVICE.",
+      "itemCount": 3937670,
+      "firstItemKeys": [
+        "basDt",
+        "srtnCd",
+        "isinCd",
+        "mrktCtg",
+        "itmsNm",
+        "crno",
+        "corpNm"
+      ],
+      "url": "https://apis.data.go.kr/1160100/service/GetKrxListedInfoService/getItemInfo?serviceKey=%2A%2A%2A&numOfRows=1&pageNo=1&resultType=json"
+    },
+    "ksdStock": {
+      "ok": false,
+      "scope": "KSD_STOCK",
+      "baseUrl": "http://api.seibro.or.kr/openapi/service/StockSvc",
+      "endpoint": "getKDRSecnInfo",
+      "attempts": [
+        {
+          "url": "https://api.seibro.or.kr/openapi/service/StockSvc/getKDRSecnInfo?ServiceKey=%2A%2A%2A&caltotMartTpcd=12",
+          "httpStatus": 200,
+          "keyParam": "ServiceKey",
+          "resultCode": "99",
+          "resultMsg": "SERVICE KEY IS NOT REGISTERED ERROR.",
+          "itemCount": 0,
+          "firstItemKeys": [],
+          "ok": false
+        },
+        {
+          "url": "https://api.seibro.or.kr/openapi/service/StockSvc/getKDRSecnInfo?serviceKey=%2A%2A%2A&caltotMartTpcd=12",
+          "httpStatus": 200,
+          "keyParam": "serviceKey",
+          "resultCode": "99",
+          "resultMsg": "SERVICE KEY IS NOT REGISTERED ERROR.",
+          "itemCount": 0,
+          "firstItemKeys": [],
+          "ok": false
+        },
+        {
+          "url": "https://api.seibro.or.kr/openapi/service/StockSvc/getKDRSecnInfo?ServiceKey=%2A%2A%2A&caltotMartTpcd=12",
+          "httpStatus": 200,
+          "keyParam": "ServiceKey",
+          "resultCode": "99",
+          "resultMsg": "SERVICE KEY IS NOT REGISTERED ERROR.",
+          "itemCount": 0,
+          "firstItemKeys": [],
+          "ok": false
+        },
+        {
+          "url": "https://api.seibro.or.kr/openapi/service/StockSvc/getKDRSecnInfo?serviceKey=%2A%2A%2A&caltotMartTpcd=12",
+          "httpStatus": 200,
+          "keyParam": "serviceKey",
+          "resultCode": "99",
+          "resultMsg": "SERVICE KEY IS NOT REGISTERED ERROR.",
+          "itemCount": 0,
+          "firstItemKeys": [],
+          "ok": false
+        }
+      ]
+    }
+  }
+}
