@@ -91,6 +91,7 @@ def main() -> None:
         'public_quotes_latest',
         'public_quotes_pykrx_latest',
         'public_technical_latest',
+        'dart_corp_codes',
     ]:
         if name in cache_rows and cache_rows[name] not in (None, ''):
             continue
@@ -117,6 +118,10 @@ def main() -> None:
         warnings.append('lockupCommitmentRatio coverage is zero')
     if count_present(items, 'ma20') == 0:
         warnings.append('technical coverage is zero')
+    if count_present(items, 'returnPct') == 0:
+        warnings.append('returnPct coverage is zero')
+    if count_present(items, 'signal') == 0:
+        warnings.append('signal coverage is zero')
     for cache_name in ['kind_listing_live', 'kind_public_offering_live', 'kind_pubprice_live']:
         rows = cache_rows.get(cache_name)
         if rows in (0, '0'):
@@ -141,6 +146,7 @@ def main() -> None:
             'ma20': count_present(items, 'ma20'),
             'ma60': count_present(items, 'ma60'),
             'rsi14': count_present(items, 'rsi14'),
+            'signal': count_present(items, 'signal'),
         },
         'listedItems': len(listing_items),
         'listedItemsWithSymbol': listed_with_symbol,

@@ -328,16 +328,24 @@ def _http_get(url: str, timeout: int = 15, *, referer: str | None = None, sessio
     if "kind.krx.co.kr" in url:
         warmup_targets = ["https://kind.krx.co.kr/", "https://kind.krx.co.kr/disclosuretoday/main.do?method=searchTodayMain"]
     elif "38.co.kr" in url:
-        warmup_targets = [THIRTYEIGHT_BASE_URL]
+        warmup_targets = [THIRTYEIGHT_BASE_URL, THIRTYEIGHT_BASE_URL.replace('https://', 'http://')]
     for target in warmup_targets:
         try:
             sess.get(target, headers=headers, timeout=min(timeout, 8))
             break
         except Exception:
             continue
-    response = sess.get(url, headers=headers, timeout=timeout)
-    response.raise_for_status()
-    response.encoding = response.apparent_encoding or response.encoding or "utf-8"
+    try:
+        response = sess.get(url, headers=headers, timeout=timeout)
+        response.raise_for_status()
+    except Exception as exc:
+        if '38.co.kr' not in url or not url.startswith('https://'):
+            raise
+        fallback_url = 'http://' + url[len('https://'):]
+        response = sess.get(fallback_url, headers=headers, timeout=timeout)
+        response.raise_for_status()
+        response.url = fallback_url
+    response.encoding = response.apparent_encoding or response.encoding or 'utf-8'
     return response
 
 

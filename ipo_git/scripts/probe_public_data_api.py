@@ -3,17 +3,34 @@ from __future__ import annotations
 import argparse
 import json
 import os
-import sys
 import urllib.parse
+import xml.etree.ElementTree as ET
 from pathlib import Path
 from typing import Any
 
-ROOT = Path(__file__).resolve().parents[1]
-if str(ROOT) not in sys.path:
-    sys.path.insert(0, str(ROOT))
+import requests
 
-from src.services.public_data_client import KSDPublicDataClient, KSD_CORP_BASE_URL, KSD_STOCK_BASE_URL
-from src.utils import load_project_env
+
+ROOT = Path(__file__).resolve().parents[1]
+
+try:
+    from src.utils import load_project_env  # type: ignore
+except Exception:  # pragma: no cover
+    def load_project_env() -> None:
+        return None
+
+
+def _service_key() -> str:
+    for key in (
+        'PUBLIC_DATA_SERVICE_KEY',
+        'KSD_PUBLIC_DATA_SERVICE_KEY',
+        'KRX_LISTED_INFO_SERVICE_KEY',
+        'DATA_GO_SERVICE_KEY',
+    ):
+        value = os.getenv(key, '').strip()
+        if value:
+            return value
+    return ''
 
 
 def _mask_url(url: str, service_key: str) -> str:
@@ -31,122 +48,138 @@ def _mask_url(url: str, service_key: str) -> str:
         return url.replace(service_key, '***') if service_key else url
 
 
-def _probe_once(client: KSDPublicDataClient, base_url: str, endpoint: str, params: dict[str, Any], key_name: str) -> dict[str, Any]:
-    query = {k: v for k, v in params.items() if v not in {None, ''}}
-    query.setdefault('numOfRows', 1)
-    query.setdefault('pageNo', 1)
-    query[key_name] = client.service_key
-    url = f"{base_url.rstrip('/')}/{endpoint.lstrip('/')}"
-    try:
-        response = client.session.get(url, params=query, timeout=15)
-        status = response.status_code
-        content_type = response.headers.get('content-type', '')
-        body_preview = response.text[:500]
-    except Exception as exc:
-        return {
-            'ok': False,
-            'transportOk': False,
-            'baseUrl': base_url,
-            'endpoint': endpoint,
-            'keyParam': key_name,
-            'error': str(exc),
-        }
-    result: dict[str, Any] = {
-        'ok': False,
-        'transportOk': True,
-        'httpStatus': status,
-        'contentType': content_type,
-        'baseUrl': base_url,
-        'endpoint': endpoint,
-        'keyParam': key_name,
-        'url': _mask_url(response.url, client.service_key),
+def _probe_krx(service_key: str) -> dict[str, Any]:
+    url = 'https://apis.data.go.kr/1160100/service/GetKrxListedInfoService/getItemInfo'
+    params = {
+        'serviceKey': service_key,
+        'numOfRows': 1,
+        'pageNo': 1,
+        'resultType': 'json',
     }
     try:
-        parsed = client._parse_xml(response.content, url=response.url, params=query)
-        result.update({
-            'ok': bool(parsed.ok and len(parsed.items) > 0),
-            'parsedOk': bool(parsed.ok),
-            'resultCode': parsed.code,
-            'resultMsg': parsed.message,
-            'itemCount': len(parsed.items),
-            'firstItemKeys': list(parsed.items[0].keys())[:20] if parsed.items else [],
-        })
+        response = requests.get(url, params=params, timeout=20)
+        response.raise_for_status()
+        payload = response.json()
+        header = (payload.get('response') or {}).get('header') or {}
+        body = (payload.get('response') or {}).get('body') or {}
+        items = ((body.get('items') or {}).get('item') or [])
+        if isinstance(items, dict):
+            items = [items]
+        return {
+            'ok': str(header.get('resultCode') or '') in {'', '00'} and int(body.get('totalCount') or 0) > 0,
+            'scope': 'KRX_LISTED_INFO',
+            'baseUrl': 'https://apis.data.go.kr/1160100/service/GetKrxListedInfoService',
+            'endpoint': 'getItemInfo',
+            'httpStatus': response.status_code,
+            'resultCode': header.get('resultCode'),
+            'resultMsg': header.get('resultMsg'),
+            'itemCount': int(body.get('totalCount') or 0),
+            'firstItemKeys': list((items[0] if items else {}).keys())[:20],
+            'url': _mask_url(response.url, service_key),
+        }
     except Exception as exc:
-        result.update({
-            'parsedOk': False,
-            'parseError': str(exc),
-            'bodyPreview': body_preview,
-        })
-    return result
-
-
-def run_probe() -> dict[str, Any]:
-    load_project_env()
-    client = KSDPublicDataClient.from_env(cache_dir=ROOT / 'data' / 'cache')
-    if client is None:
         return {
             'ok': False,
-            'serviceKeyConfigured': False,
-            'reason': 'PUBLIC_DATA_SERVICE_KEY missing',
-            'probes': [],
+            'scope': 'KRX_LISTED_INFO',
+            'error': str(exc),
+            'baseUrl': 'https://apis.data.go.kr/1160100/service/GetKrxListedInfoService',
+            'endpoint': 'getItemInfo',
         }
-    probes: list[dict[str, Any]] = []
-    cases = [
-        {
-            'name': 'market_codes_kospi',
-            'base_url': KSD_STOCK_BASE_URL,
-            'endpoint': 'getShotnByMartN1',
-            'params': {'martTpcd': '11', 'numOfRows': 1, 'pageNo': 1},
-        },
-        {
-            'name': 'stock_name_samsung',
-            'base_url': KSD_STOCK_BASE_URL,
-            'endpoint': 'getStkIsinByNmN1',
-            'params': {'secnNm': '삼성전자', 'numOfRows': 1, 'pageNo': 1},
-        },
-        {
-            'name': 'corp_name_samsung',
-            'base_url': KSD_CORP_BASE_URL,
-            'endpoint': 'getIssucoCustnoByNm',
-            'params': {'issucoNm': '삼성전자', 'numOfRows': 1, 'pageNo': 1},
-        },
-    ]
-    for case in cases:
-        base_urls = [case['base_url']]
-        if str(case['base_url']).startswith('http://'):
-            base_urls.append('https://' + str(case['base_url'])[len('http://'):])
-        attempts: list[dict[str, Any]] = []
-        for base_url in base_urls:
-            for key_name in ('serviceKey', 'ServiceKey'):
-                probe = _probe_once(client, base_url, case['endpoint'], case['params'], key_name)
-                probe['name'] = case['name']
-                attempts.append(probe)
-                if probe.get('ok'):
-                    break
-            if any(item.get('ok') for item in attempts):
-                break
-        probes.append({
-            'name': case['name'],
-            'success': any(item.get('ok') for item in attempts),
-            'attempts': attempts,
-        })
-    any_success = any(item.get('success') for item in probes)
+
+
+def _parse_xml_result(text: str) -> tuple[str, str, int, list[dict[str, Any]]]:
+    root = ET.fromstring(text)
+    code = (root.findtext('.//resultCode') or '').strip()
+    msg = (root.findtext('.//resultMsg') or '').strip()
+    items: list[dict[str, Any]] = []
+    for item in root.findall('.//items/item'):
+        row: dict[str, Any] = {}
+        for child in list(item):
+            row[child.tag] = (child.text or '').strip()
+        items.append(row)
+    return code, msg, len(items), items
+
+
+def _probe_ksd_stock(service_key: str) -> dict[str, Any]:
+    # data.go.kr 문서에 실제 서비스URL로 노출되는 대표 엔드포인트
+    url = 'http://api.seibro.or.kr/openapi/service/StockSvc/getKDRSecnInfo'
+    attempts: list[dict[str, Any]] = []
+    for resolved_url in (url, url.replace('http://', 'https://')):
+        for key_name in ('ServiceKey', 'serviceKey'):
+            params = {key_name: service_key, 'caltotMartTpcd': '12'}
+            try:
+                response = requests.get(resolved_url, params=params, timeout=20)
+                status = response.status_code
+                code, msg, item_count, items = _parse_xml_result(response.text)
+                attempts.append({
+                    'url': _mask_url(response.url, service_key),
+                    'httpStatus': status,
+                    'keyParam': key_name,
+                    'resultCode': code,
+                    'resultMsg': msg,
+                    'itemCount': item_count,
+                    'firstItemKeys': list((items[0] if items else {}).keys())[:20],
+                    'ok': code in {'', '00'} and item_count > 0,
+                })
+                if code in {'', '00'} and item_count > 0:
+                    return {
+                        'ok': True,
+                        'scope': 'KSD_STOCK',
+                        'baseUrl': 'http://api.seibro.or.kr/openapi/service/StockSvc',
+                        'endpoint': 'getKDRSecnInfo',
+                        'attempts': attempts,
+                    }
+            except Exception as exc:
+                attempts.append({
+                    'url': resolved_url,
+                    'keyParam': key_name,
+                    'ok': False,
+                    'error': str(exc),
+                })
     return {
-        'ok': any_success,
-        'serviceKeyConfigured': True,
-        'probes': probes,
+        'ok': False,
+        'scope': 'KSD_STOCK',
+        'baseUrl': 'http://api.seibro.or.kr/openapi/service/StockSvc',
+        'endpoint': 'getKDRSecnInfo',
+        'attempts': attempts,
     }
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description='공공데이터 KSD API 연결 상태 프로브')
+    parser = argparse.ArgumentParser(description='공공데이터 API 연결 상태 프로브(KRX + KSD 주식정보서비스)')
     parser.add_argument('--output', default='')
     args = parser.parse_args()
-    report = run_probe()
+
+    load_project_env()
+    key = _service_key()
+    if not key:
+        report = {
+            'ok': False,
+            'serviceKeyConfigured': False,
+            'reason': 'PUBLIC_DATA_SERVICE_KEY missing',
+            'manualTests': {},
+            'scopes': {},
+        }
+    else:
+        krx = _probe_krx(key)
+        ksd_stock = _probe_ksd_stock(key)
+        report = {
+            'ok': bool(krx.get('ok') or ksd_stock.get('ok')),
+            'serviceKeyConfigured': True,
+            'manualTests': {
+                'krxListedInfo': 'https://apis.data.go.kr/1160100/service/GetKrxListedInfoService/getItemInfo?serviceKey=***&numOfRows=1&pageNo=1&resultType=xml',
+                'ksdStockSvc': 'http://api.seibro.or.kr/openapi/service/StockSvc/getKDRSecnInfo?ServiceKey=***&caltotMartTpcd=12',
+            },
+            'scopes': {
+                'krx': krx,
+                'ksdStock': ksd_stock,
+            },
+        }
+
     if args.output:
-        output_path = Path(args.output).resolve()
-        output_path.parent.mkdir(parents=True, exist_ok=True)
-        output_path.write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding='utf-8')
+        out = Path(args.output).resolve()
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding='utf-8')
     print(json.dumps(report, ensure_ascii=False, indent=2))
 
 

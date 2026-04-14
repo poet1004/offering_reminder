@@ -21,6 +21,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from src.services.calculations import latest_signal_from_history
+from src.services.dart_client import DartClient
 from src.services.ipo_pipeline import IPODataHub
 from src.services.public_quote_service import PublicQuoteService
 from src.utils import normalize_name_key, normalize_symbol_text, parse_date_columns, standardize_issue_frame, today_kst
@@ -56,6 +57,7 @@ AUX_CACHE_NAMES = [
     'public_quotes_latest',
     'public_quotes_pykrx_latest',
     'public_technical_latest',
+    'dart_corp_codes',
 ]
 
 EVENT_COLOR = {
@@ -165,6 +167,58 @@ def _latest_timestamp(values: list[Any]) -> str | None:
         return None
     latest = parsed.max()
     return latest.isoformat()
+
+
+def _to_float(value: Any) -> float | None:
+    try:
+        if value is None or pd.isna(value):
+            return None
+    except Exception:
+        pass
+    try:
+        return float(value)
+    except Exception:
+        return None
+
+
+def _compute_return_pct(offer_price: Any, current_price: Any) -> float | None:
+    offer = _to_float(offer_price)
+    current = _to_float(current_price)
+    if offer is None or current is None or offer <= 0:
+        return None
+    return round((current / offer - 1.0) * 100.0, 4)
+
+
+def _derive_existing_shareholder_ratio(row: pd.Series) -> float | None:
+    existing = _to_float(row.get('existing_shareholder_ratio'))
+    if existing is not None:
+        return existing
+    post = _to_float(row.get('post_listing_total_shares'))
+    new = _to_float(row.get('new_shares'))
+    if post is None or new is None or post <= 0 or new < 0 or post < new:
+        return None
+    return round(((post - new) / post) * 100.0, 4)
+
+
+def _derive_signal(row: pd.Series) -> str | None:
+    signal = text_value(row.get('signal'))
+    if signal:
+        return signal
+    current = _to_float(row.get('current_price'))
+    ma20 = _to_float(row.get('ma20'))
+    ma60 = _to_float(row.get('ma60'))
+    rsi14 = _to_float(row.get('rsi14'))
+    if current is None or ma20 is None:
+        return None
+    if ma60 is not None and current >= ma20 >= ma60:
+        if rsi14 is None or rsi14 < 75:
+            return '상승'
+    if ma60 is not None and current < ma20 < ma60:
+        if rsi14 is None or rsi14 <= 45:
+            return '약세'
+    if current >= ma20:
+        return '중립+'
+    return '중립'
 
 
 def _read_meta_json(path: Path) -> dict[str, Any]:
@@ -504,25 +558,27 @@ def build_item(row: pd.Series) -> dict[str, Any]:
         'priceBandHigh': clean(row.get('price_band_high')),
         'offerPrice': clean(row.get('offer_price')),
         'retailCompetitionRatio': clean(row.get('retail_competition_ratio_live')),
-        'institutionalCompetitionRatio': clean(row.get('institutional_competition_ratio')),
+        'institutionalCompetitionRatio': clean(pick_value(row.get('institutional_competition_ratio'), row.get('demand_result_competition_ratio'))),
         'allocationRatioRetail': clean(row.get('allocation_ratio_retail')),
         'allocationRatioProportional': clean(row.get('allocation_ratio_proportional')),
-        'lockupCommitmentRatio': clean(row.get('lockup_commitment_ratio')),
+        'lockupCommitmentRatio': clean(pick_value(row.get('lockup_commitment_ratio'), row.get('lockup_ratio'))),
         'employeeSubscriptionRatio': clean(row.get('employee_subscription_ratio')),
         'employeeForfeitRatio': clean(row.get('employee_forfeit_ratio')),
         'circulatingSharesOnListing': clean(row.get('circulating_shares_on_listing')),
         'circulatingSharesRatioOnListing': clean(row.get('circulating_shares_ratio_on_listing')),
-        'existingShareholderRatio': clean(row.get('existing_shareholder_ratio')),
+        'existingShareholderRatio': clean(_derive_existing_shareholder_ratio(row)),
         'totalOfferShares': clean(row.get('total_offer_shares')),
         'newShares': clean(row.get('new_shares')),
         'sellingShares': clean(row.get('selling_shares')),
         'secondarySaleRatio': clean(row.get('secondary_sale_ratio')),
         'postListingTotalShares': clean(row.get('post_listing_total_shares')),
         'currentPrice': clean(row.get('current_price')),
+        'returnPct': clean(_compute_return_pct(row.get('offer_price'), row.get('current_price'))),
         'dayChangePct': clean(row.get('day_change_pct')),
         'ma20': clean(row.get('ma20')),
         'ma60': clean(row.get('ma60')),
         'rsi14': clean(row.get('rsi14')),
+        'signal': clean(_derive_signal(row)),
         'irTitle': clean(row.get('ir_title')),
         'irDate': as_date_str(row.get('ir_date')),
         'irUrl': clean(row.get('ir_url')),
@@ -919,7 +975,7 @@ def apply_public_technical_overlay(repo: Path, issues: pd.DataFrame, *, max_symb
         source = tech_symbol_map.get(symbol) if symbol else None
         if source is not None:
             touched = False
-            for col in ['current_price', 'ma20', 'ma60', 'rsi14']:
+            for col in ['current_price', 'ma20', 'ma60', 'rsi14', 'signal']:
                 if _missing(item.get(col)) and not _missing(source.get(col)):
                     item[col] = source.get(col)
                     touched = True
@@ -927,6 +983,38 @@ def apply_public_technical_overlay(repo: Path, issues: pd.DataFrame, *, max_symb
                 applied += 1
         rows.append(item)
     return parse_date_columns(pd.DataFrame(rows)), {'source': 'public-technical-overlay', 'ok': applied > 0, 'rows': int(len(merged)), 'detail': f'targets={len(target_symbols)}, applied={applied}'}
+
+
+def apply_dart_recent_overlay(repo: Path, issues: pd.DataFrame, *, max_items: int = 60) -> tuple[pd.DataFrame, dict[str, Any]]:
+    work = standardize_issue_frame(issues.copy()) if issues is not None and not issues.empty else pd.DataFrame()
+    if work.empty:
+        return work, {'source': 'dart-auto-overlay', 'ok': False, 'rows': 0, 'detail': 'issues empty'}
+    dart = DartClient.from_env()
+    if dart is None or not dart.is_configured():
+        return work, {'source': 'dart-auto-overlay', 'ok': False, 'rows': 0, 'detail': 'DART key unavailable'}
+    try:
+        hub = IPODataHub(repo / 'data', dart_client=dart)
+        overlay = hub._auto_dart_overlay(work, max_items=max_items)
+    except Exception as exc:
+        return work, {'source': 'dart-auto-overlay', 'ok': False, 'rows': 0, 'detail': str(exc)}
+    if overlay is None or overlay.empty:
+        return work, {'source': 'dart-auto-overlay', 'ok': False, 'rows': 0, 'detail': 'overlay empty'}
+    try:
+        merged = hub._overlay_issues(work, overlay)
+    except Exception as exc:
+        return work, {'source': 'dart-auto-overlay', 'ok': False, 'rows': int(len(overlay)), 'detail': f'overlay merge failed: {exc}'}
+
+    applied = 0
+    enriched_cols = [
+        'symbol', 'underwriters', 'forecast_date', 'institutional_competition_ratio',
+        'lockup_commitment_ratio', 'existing_shareholder_ratio', 'total_offer_shares',
+        'new_shares', 'selling_shares', 'post_listing_total_shares', 'dart_receipt_no',
+        'dart_viewer_url', 'dart_report_nm', 'dart_filing_date',
+    ]
+    for base_row, merged_row in zip(work.to_dict('records'), merged.to_dict('records')):
+        if any(_missing(base_row.get(col)) and not _missing(merged_row.get(col)) for col in enriched_cols):
+            applied += 1
+    return parse_date_columns(merged), {'source': 'dart-auto-overlay', 'ok': applied > 0, 'rows': int(len(overlay)), 'detail': f'applied={applied}'}
 
 
 def build_feed(repo: Path, *, prefer_live: bool = False, use_cache: bool = True) -> dict[str, Any]:
@@ -940,6 +1028,8 @@ def build_feed(repo: Path, *, prefer_live: bool = False, use_cache: bool = True)
     source_status = inputs['source_status'] if isinstance(inputs['source_status'], pd.DataFrame) else pd.DataFrame()
 
     extra_status_rows: list[dict[str, Any]] = []
+    issues, dart_status = apply_dart_recent_overlay(repo, issues)
+    extra_status_rows.append(dart_status)
     issues, quote_status = apply_public_quote_overlay(repo, issues)
     extra_status_rows.append(quote_status)
     issues, technical_status = apply_public_technical_overlay(repo, issues)

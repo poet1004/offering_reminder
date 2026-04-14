@@ -21,6 +21,7 @@ on:
       - 'ipo_git/scripts/write_official_api_status.py'
       - 'ipo_git/scripts/probe_public_data_api.py'
       - 'ipo_git/src/services/public_data_client.py'
+      - 'ipo_git/src/services/ipo_scrapers.py'
       - 'ipo_git/scripts/build_pages_site.py'
       - 'ipo_git/static_pages/**'
       - 'ipo_git/src/services/market_service.py'
@@ -69,7 +70,7 @@ jobs:
         shell: bash
         run: |
           set +e
-          python ipo_git/scripts/refresh_live_cache.py --data-dir ipo_git/data --skip-market --skip-official \
+          python ipo_git/scripts/refresh_live_cache.py --data-dir ipo_git/data --skip-market --skip-official --refresh-dart-corp \
             > ipo_git/data/runtime/live_cache_status.json \
             2> ipo_git/data/runtime/live_cache_status.stderr.txt
           RC=$?
@@ -137,6 +138,8 @@ jobs:
           echo "RAW_BASE=${RAW_BASE}" >> "$GITHUB_ENV"
 
       - name: Build mobile feed bundle
+        env:
+          DART_API_KEY: ${{ secrets.DART_API_KEY }}
         run: |
           python ipo_git/scripts/export_mobile_feed.py \
             --repo ipo_git \
