@@ -7,7 +7,7 @@ const state = {
   unlockRows: [],
   timeline: [],
   today: null,
-  ui: { listingPage: 1, listingPerPage: 8, subscriptionPage: 1, subscriptionPerPage: 8, unlockPage: 1, unlockPerPage: 8, explorerPage: 1, explorerPerPage: 8, calendarMonthOffset: 0, calendarSelectedDate: '' },
+  ui: { listingPage: 1, listingPerPage: 5, subscriptionPage: 1, subscriptionPerPage: 3, unlockPage: 1, unlockPerPage: 5, explorerPage: 1, explorerPerPage: 8, calendarMonthOffset: 0, calendarSelectedDate: '', calendarIncludeUnlock: false },
 };
 
 const el = (selector) => document.querySelector(selector);
@@ -422,7 +422,8 @@ function addCalendarRangeRows(rows, start, end, buildRow) {
   }
 }
 
-function buildCalendarRows(items, unlockRows) {
+function buildCalendarRows(items, unlockRows, options = {}) {
+  const includeUnlock = Boolean(options.includeUnlock);
   const rows = [];
   for (const item of items || []) {
     const underwriterText = item.underwriterText && item.underwriterText !== '-' ? item.underwriterText : '';
@@ -452,7 +453,7 @@ function buildCalendarRows(items, unlockRows) {
       });
     }
   }
-  for (const row of unlockRows || []) {
+  if (includeUnlock) for (const row of unlockRows || []) {
     rows.push({
       id: row.id,
       date: row.date,
@@ -612,6 +613,12 @@ function bindControls() {
     });
   });
 
+  const calendarToggle = el('#calendar-toggle-unlock');
+  if (calendarToggle) calendarToggle.addEventListener('click', () => {
+    state.ui.calendarIncludeUnlock = !state.ui.calendarIncludeUnlock;
+    renderCalendar();
+  });
+
   const calendarPrev = el('#calendar-prev');
   if (calendarPrev) calendarPrev.addEventListener('click', () => {
     state.ui.calendarMonthOffset -= 1;
@@ -729,8 +736,14 @@ function renderCalendar() {
   const monthStart = getCalendarMonthStart();
   const monthEnd = new Date(monthStart.getFullYear(), monthStart.getMonth() + 1, 0);
   if (title) title.textContent = `${monthStart.getFullYear()}년 ${monthStart.getMonth() + 1}월`;
+  const toggle = el('#calendar-toggle-unlock');
+  if (toggle) {
+    toggle.textContent = state.ui.calendarIncludeUnlock ? '보호예수 해제 숨기기' : '보호예수 해제 포함';
+    toggle.classList.toggle('is-active', state.ui.calendarIncludeUnlock);
+    toggle.setAttribute('aria-pressed', state.ui.calendarIncludeUnlock ? 'true' : 'false');
+  }
 
-  const calendarRows = buildCalendarRows(state.items, state.unlockRows);
+  const calendarRows = buildCalendarRows(state.items, state.unlockRows, { includeUnlock: state.ui.calendarIncludeUnlock });
   const rowsByDay = new Map();
   for (const row of calendarRows) {
     const date = parseDate(row.date);
@@ -839,7 +852,7 @@ function renderSubscriptions() {
   else if (group === 'after') items = items.filter((item) => (item.stage || '') === '상장후' || (diffDays(parseDate(item.subscriptionStart), today) ?? 9999) < 0);
   items = sortByNearestDate(items, 'subscriptionStart', today);
 
-  const perPage = state.ui.subscriptionPerPage || 8;
+  const perPage = state.ui.subscriptionPerPage || 3;
   const total = items.length;
   const pageCount = Math.max(1, Math.ceil(total / perPage));
   const currentPage = Math.min(Math.max(1, state.ui.subscriptionPage || 1), pageCount);
@@ -847,7 +860,7 @@ function renderSubscriptions() {
   const start = (currentPage - 1) * perPage;
   const pageItems = items.slice(start, start + perPage);
 
-  el('#subscription-meta').textContent = `${total}건 · ${currentPage}/${pageCount} 페이지`;
+  if (el('#subscription-meta')) el('#subscription-meta').textContent = '';
   el('#subscription-list').innerHTML = pageItems.length ? pageItems.map(renderIssueCard).join('') : emptyState('조건에 맞는 청약 종목이 없습니다.');
   renderPager('subscription-pager', currentPage, pageCount, perPage, total, (page) => {
     state.ui.subscriptionPage = page;
@@ -902,7 +915,7 @@ function renderListings() {
   else if (status === 'delisted') items = items.filter((item) => /상장폐지|청산/.test(item.listingStatus || ''));
   items = sortByNearestDate(items, 'listingDate', today);
 
-  const perPage = state.ui.listingPerPage || 8;
+  const perPage = state.ui.listingPerPage || 5;
   const total = items.length;
   const pageCount = Math.max(1, Math.ceil(total / perPage));
   const currentPage = Math.min(Math.max(1, state.ui.listingPage || 1), pageCount);
@@ -910,16 +923,7 @@ function renderListings() {
   const start = (currentPage - 1) * perPage;
   const pageItems = items.slice(start, start + perPage);
 
-  const availability = {
-    price: items.filter((item) => item.currentPrice !== null && item.currentPrice !== undefined && item.currentPrice !== '').length,
-    institutional: items.filter((item) => item.institutionalCompetitionRatio !== null && item.institutionalCompetitionRatio !== undefined && item.institutionalCompetitionRatio !== '').length,
-    lockup: items.filter((item) => item.lockupCommitmentRatio !== null && item.lockupCommitmentRatio !== undefined && item.lockupCommitmentRatio !== '').length,
-    signal: items.filter((item) => item.signalText && item.signalText !== '-').length,
-  };
-  const missingDataNote = availability.price === 0 && availability.institutional === 0 && availability.lockup === 0 && availability.signal === 0
-    ? ' · 시세/기관/확약 데이터 미반영'
-    : '';
-  el('#listing-meta').textContent = `${total}건 · ${currentPage}/${pageCount} 페이지${missingDataNote}`;
+  if (el('#listing-meta')) el('#listing-meta').textContent = '';
   el('#listing-table tbody').innerHTML = pageItems.map((item) => {
     const returnClass = item.returnPct === null ? '' : item.returnPct >= 0 ? 'good' : 'bad';
     return `
@@ -958,7 +962,6 @@ function renderPager(containerId, currentPage, pageCount, perPage, totalItems, o
     pages.push(`<button class="pager-button ${page === currentPage ? 'active' : ''}" data-page="${page}">${page}</button>`);
   }
   pages.push(`<button class="pager-button" data-page="${Math.min(pageCount, currentPage + 1)}" ${currentPage === pageCount ? 'disabled' : ''}>›</button>`);
-  pages.push(`<span class="pager-summary">${formatNumber(totalItems)}건 · ${perPage}개씩</span>`);
   container.innerHTML = pages.join('');
   container.querySelectorAll('button[data-page]').forEach((button) => {
     button.addEventListener('click', () => {
@@ -978,7 +981,7 @@ function renderUnlocks() {
   if (term) rows = rows.filter((row) => row.term === term);
   rows = sortByNearestDate(rows, 'date', today);
 
-  const perPage = state.ui.unlockPerPage || 8;
+  const perPage = state.ui.unlockPerPage || 5;
   const total = rows.length;
   const pageCount = Math.max(1, Math.ceil(total / perPage));
   const currentPage = Math.min(Math.max(1, state.ui.unlockPage || 1), pageCount);
@@ -986,7 +989,7 @@ function renderUnlocks() {
   const start = (currentPage - 1) * perPage;
   const pageRows = rows.slice(start, start + perPage);
 
-  el('#unlock-meta').textContent = `${total}건 · ${currentPage}/${pageCount} 페이지`;
+  if (el('#unlock-meta')) el('#unlock-meta').textContent = '';
   el('#unlock-table tbody').innerHTML = pageRows.map((row) => `
     <tr>
       <td><span class="table-main">${escapeHtml(row.name)}</span><span class="table-sub">${escapeHtml(row.symbol || '')}</span></td>

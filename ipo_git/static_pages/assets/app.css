@@ -359,6 +359,11 @@ textarea.script-box {
   background: #eff6ff;
   color: var(--brand);
 }
+.button.secondary.is-active,
+.calendar-toggle-btn.is-active {
+  background: var(--brand);
+  color: #fff;
+}
 
 .issue-card-grid {
   display: grid;

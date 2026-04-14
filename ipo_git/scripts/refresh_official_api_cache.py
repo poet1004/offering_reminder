@@ -32,6 +32,23 @@ KRX_MARKET_LABELS = {
 }
 
 
+def _is_missing_scalar(value: Any) -> bool:
+    try:
+        return pd.isna(value)
+    except Exception:
+        return value is None
+
+
+def _clean_str(value: Any) -> str:
+    if _is_missing_scalar(value):
+        return ""
+    return str(value).strip()
+
+
+def _value_or(value: Any, fallback: Any) -> Any:
+    return fallback if _is_missing_scalar(value) else value
+
+
 def _resolve_public_service_key() -> str:
     for env_name in ("PUBLIC_DATA_SERVICE_KEY", "KRX_LISTED_INFO_SERVICE_KEY", "KSD_PUBLIC_DATA_SERVICE_KEY", "DATA_GO_SERVICE_KEY", "SEIBRO_SERVICE_KEY"):
         value = os.getenv(env_name, "").strip()
@@ -148,7 +165,7 @@ def issue_frame_from_krx_master(df: pd.DataFrame) -> pd.DataFrame:
                 "notes": row.get("corp_name"),
                 "source": "공공데이터-KRX상장종목정보",
                 "source_detail": row.get("source_detail"),
-                "last_refresh_ts": row.get("last_refresh_ts") or today_kst(),
+                "last_refresh_ts": _value_or(row.get("last_refresh_ts"), today_kst()),
             }
         )
     return pd.DataFrame(rows)
@@ -216,7 +233,7 @@ def select_name_lookup_candidates(issues: pd.DataFrame, existing_map: pd.DataFra
         existing_symbols = set(existing_map.get("symbol", pd.Series(dtype="object")).dropna().astype(str).tolist())
     out: list[str] = []
     for _, row in issues.iterrows():
-        name = str(row.get("name") or "").strip()
+        name = _clean_str(row.get("name"))
         if not name:
             continue
         name_key = normalize_name_key(name)
@@ -253,7 +270,7 @@ def issue_frame_from_official_listing(df: pd.DataFrame) -> pd.DataFrame:
                 "notes": row.get("listing_status") if pd.notna(row.get("delisting_date")) else pd.NA,
                 "source": "공공데이터-상장정보",
                 "source_detail": row.get("source_detail"),
-                "last_refresh_ts": row.get("last_refresh_ts") or today_kst(),
+                "last_refresh_ts": _value_or(row.get("last_refresh_ts"), today_kst()),
             }
         )
     return pd.DataFrame(rows)
@@ -291,7 +308,7 @@ def issue_frame_from_official_basic(df: pd.DataFrame, mapping: pd.DataFrame | No
                 "notes": row.get("homep_url"),
                 "source": "공공데이터-기업개요",
                 "source_detail": row.get("source_detail"),
-                "last_refresh_ts": row.get("last_refresh_ts") or today_kst(),
+                "last_refresh_ts": _value_or(row.get("last_refresh_ts"), today_kst()),
             }
         )
     return pd.DataFrame(rows)
@@ -446,7 +463,7 @@ def main() -> None:
         recent_candidates = existing_name_map.copy()
         recent_candidates = recent_candidates.sort_values([c for c in ["last_refresh_ts", "query_name", "name"] if c in recent_candidates.columns], ascending=[False, True, True], na_position="last")
         for _, row in recent_candidates.drop_duplicates(subset=[c for c in ["issuco_custno"] if c in recent_candidates.columns], keep="first").iterrows():
-            custno = str(row.get("issuco_custno") or "").strip()
+            custno = _clean_str(row.get("issuco_custno"))
             if not custno:
                 continue
             if custno not in seen_custno and len(corp_frames) < args.max_corp_lookups:

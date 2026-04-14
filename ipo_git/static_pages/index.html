@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>공모주 알리미 웹</title>
     <meta name="description" content="공모주 청약, 상장, 보호예수 해제 일정을 정적 웹으로 보는 공모주 알리미" />
-    <link rel="stylesheet" href="./assets/app.css?v=20260414r16" />
+    <link rel="stylesheet" href="./assets/app.css?v=20260414r17" />
   </head>
   <body>
     <div class="app-shell">
@@ -41,6 +41,22 @@
 
           <div class="stats-grid" id="summary-stats"></div>
 
+          <div class="card calendar-panel" id="calendar-panel">
+            <div class="card-head calendar-head">
+              <div>
+                <h3>공모주 달력</h3>
+              </div>
+              <div class="calendar-toolbar">
+                <button class="button secondary calendar-toggle-btn" id="calendar-toggle-unlock" type="button">보호예수 해제 포함</button>
+                <button class="button secondary calendar-nav-btn" id="calendar-prev" type="button">이전달</button>
+                <div class="calendar-title" id="calendar-title">-</div>
+                <button class="button secondary calendar-nav-btn" id="calendar-next" type="button">다음달</button>
+              </div>
+            </div>
+            <div class="calendar-grid" id="calendar-grid"></div>
+            <div class="calendar-detail" id="calendar-detail"></div>
+          </div>
+
           <div class="two-col-grid">
             <div class="card">
               <div class="card-head">
@@ -56,22 +72,6 @@
               </div>
               <div id="timeline-list" class="timeline-list"></div>
             </div>
-          </div>
-
-          <div class="card calendar-panel" id="calendar-panel">
-            <div class="card-head calendar-head">
-              <div>
-                <h3>공모주 달력</h3>
-                <div class="card-note">청약 · 상장 · 보호예수 해제를 한 달씩 봅니다.</div>
-              </div>
-              <div class="calendar-toolbar">
-                <button class="button secondary calendar-nav-btn" id="calendar-prev" type="button">이전달</button>
-                <div class="calendar-title" id="calendar-title">-</div>
-                <button class="button secondary calendar-nav-btn" id="calendar-next" type="button">다음달</button>
-              </div>
-            </div>
-            <div class="calendar-grid" id="calendar-grid"></div>
-            <div class="calendar-detail" id="calendar-detail"></div>
           </div>
         </section>
 
@@ -209,6 +209,6 @@
         healthPaths: ["./data/mobile-feed-verify.json"]
       };
     </script>
-    <script src="./assets/app.js?v=20260414r16"></script>
+    <script src="./assets/app.js?v=20260414r17"></script>
   </body>
 </html>
