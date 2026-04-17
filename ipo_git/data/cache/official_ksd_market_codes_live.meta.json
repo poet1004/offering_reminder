@@ -1,7 +1,7 @@
 {
   "name": "official_ksd_market_codes_live",
-  "row_count": 5454,
-  "saved_at": "2026-04-16T00:00:00",
+  "row_count": 5455,
+  "saved_at": "2026-04-17T00:00:00",
   "source": "KRX+KSD",
   "notes": "시장별 단축코드 전체 조회 (KRX fallback 포함)"
 }
