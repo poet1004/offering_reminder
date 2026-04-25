@@ -1,7 +1,7 @@
 {
   "ok": false,
-  "generatedAt": "2026-04-24T06:40:00.099525+00:00",
-  "upstreamUpdatedAt": "2026-04-24T00:00:00",
+  "generatedAt": "2026-04-25T00:29:03.086261+00:00",
+  "upstreamUpdatedAt": "2026-04-25T00:00:00",
   "schemaVersion": 3,
   "summary": {
     "itemCount": 1016,
@@ -14,15 +14,15 @@
     }
   },
   "itemCoverage": {
-    "offerPrice": 918,
+    "offerPrice": 919,
     "listingDate": 881,
     "subscriptionStart": 30,
     "underwriters": 286,
     "currentPrice": 729,
     "returnPct": 639,
     "institutionalCompetitionRatio": 120,
-    "lockupCommitmentRatio": 105,
-    "existingShareholderRatio": 5,
+    "lockupCommitmentRatio": 104,
+    "existingShareholderRatio": 6,
     "ma20": 157,
     "ma60": 155,
     "rsi14": 151,
@@ -41,7 +41,7 @@
     "subscription_end": 30
   },
   "cacheRows": {
-    "dart_corp_codes": 116964,
+    "dart_corp_codes": 117033,
     "ir_38_live": 1,
     "kind_corp_download_live": 2766,
     "kind_listing_live": 0,
@@ -49,16 +49,16 @@
     "kind_pubprice_live": 0,
     "market_snapshot_diag_latest": 11,
     "market_snapshot_last_success": 9,
-    "official_issue_overlay_live": 21781,
-    "official_krx_listed_info_live": 21781,
-    "official_ksd_market_codes_live": 5468,
-    "official_ksd_name_lookup_live": 5468,
+    "official_issue_overlay_live": 24502,
+    "official_krx_listed_info_live": 24502,
+    "official_ksd_market_codes_live": 5471,
+    "official_ksd_name_lookup_live": 5471,
     "public_quotes_latest": 732,
     "public_technical_latest": 155,
     "schedule_38_demand_live": 120,
     "schedule_38_live": 30,
     "schedule_38_new_listing_live": 84,
-    "seibro_release_live": 67
+    "seibro_release_live": 64
   },
   "warnings": [
     "kind_listing_live rows=0",
