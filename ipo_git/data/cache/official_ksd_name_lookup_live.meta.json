@@ -1,7 +1,7 @@
 {
   "name": "official_ksd_name_lookup_live",
   "row_count": 5479,
-  "saved_at": "2026-04-30T00:00:00",
+  "saved_at": "2026-05-01T00:00:00",
   "source": "KRX+KSD",
   "notes": "종목명→단축코드/ISIN (KRX fallback 포함)"
 }
