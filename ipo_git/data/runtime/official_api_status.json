@@ -1,22 +1,22 @@
 {
   "ok": true,
-  "generatedAt": "2026-04-30T23:20:16.314148+00:00",
+  "generatedAt": "2026-05-01T23:20:54.983521+00:00",
   "serviceKeyConfigured": true,
   "refreshReturnCode": 0,
   "refreshSucceeded": true,
   "cachePopulated": true,
   "cacheRows": {
-    "official_ksd_name_lookup_live": 5479,
-    "official_ksd_market_codes_live": 5479,
+    "official_ksd_name_lookup_live": 5481,
+    "official_ksd_market_codes_live": 5481,
     "official_ksd_listing_info_live": null,
     "official_ksd_corp_basic_live": null,
     "official_ksd_shareholder_summary_live": null,
-    "official_issue_overlay_live": 29944,
-    "official_krx_listed_info_live": 29944
+    "official_issue_overlay_live": 32665,
+    "official_krx_listed_info_live": 32665
   },
   "rawReport": {
     "ok": true,
-    "saved_at": "2026-05-01T00:00:00",
+    "saved_at": "2026-05-02T00:00:00",
     "warnings": [],
     "candidate_issues": 80,
     "krx_probe": {
@@ -25,6 +25,13 @@
       "totalCount": 2767,
       "rows": 2721,
       "attempts": [
+        {
+          "basDt": "20260502",
+          "ok": false,
+          "resultCode": "00",
+          "resultMsg": "NORMAL SERVICE.",
+          "totalCount": 0
+        },
         {
           "basDt": "20260501",
           "ok": false,
@@ -48,14 +55,14 @@
         }
       ]
     },
-    "name_lookup_rows": 5479,
+    "name_lookup_rows": 5481,
     "name_lookup_added": 0,
-    "market_code_rows": 5479,
+    "market_code_rows": 5481,
     "listing_info_rows": 0,
     "corp_basic_rows": 0,
     "shareholder_summary_rows": 0,
-    "krx_listed_rows": 29944,
-    "official_issue_overlay_rows": 29944
+    "krx_listed_rows": 32665,
+    "official_issue_overlay_rows": 32665
   },
   "rawReason": null,
   "stdoutPreview": "",
