@@ -1,7 +1,7 @@
 {
   "name": "market_snapshot_last_success",
   "row_count": 9,
-  "saved_at": "2026-05-02T00:00:00",
+  "saved_at": "2026-05-05T00:00:00",
   "source": "live(NaverFinance+YahooHTTP)",
   "provider_count": 2,
   "notes": "last successful live market snapshot"
