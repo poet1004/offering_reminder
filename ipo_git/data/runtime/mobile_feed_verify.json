@@ -1,7 +1,7 @@
 {
   "ok": false,
-  "generatedAt": "2026-05-11T23:33:47.968593+00:00",
-  "upstreamUpdatedAt": "2026-05-12T00:00:00",
+  "generatedAt": "2026-05-12T23:40:15.998618+00:00",
+  "upstreamUpdatedAt": "2026-05-13T00:00:00",
   "schemaVersion": 3,
   "summary": {
     "itemCount": 1019,
@@ -41,7 +41,7 @@
     "subscription_end": 30
   },
   "cacheRows": {
-    "dart_corp_codes": 117933,
+    "dart_corp_codes": 117999,
     "ir_38_live": 1,
     "kind_corp_download_live": 2766,
     "kind_listing_live": 0,
@@ -49,16 +49,16 @@
     "kind_pubprice_live": 0,
     "market_snapshot_diag_latest": 11,
     "market_snapshot_last_success": 9,
-    "official_issue_overlay_live": 43541,
-    "official_krx_listed_info_live": 43541,
-    "official_ksd_market_codes_live": 5479,
-    "official_ksd_name_lookup_live": 5479,
+    "official_issue_overlay_live": 46259,
+    "official_krx_listed_info_live": 46259,
+    "official_ksd_market_codes_live": 5481,
+    "official_ksd_name_lookup_live": 5481,
     "public_quotes_latest": 737,
     "public_technical_latest": 158,
     "schedule_38_demand_live": 120,
     "schedule_38_live": 30,
     "schedule_38_new_listing_live": 84,
-    "seibro_release_live": 71
+    "seibro_release_live": 76
   },
   "warnings": [
     "kind_listing_live rows=0",
