@@ -1,30 +1,37 @@
 {
   "ok": true,
-  "generatedAt": "2026-05-13T23:37:16.468289+00:00",
+  "generatedAt": "2026-05-14T23:17:34.276966+00:00",
   "serviceKeyConfigured": true,
   "refreshReturnCode": 0,
   "refreshSucceeded": true,
   "cachePopulated": true,
   "cacheRows": {
-    "official_ksd_name_lookup_live": 5483,
-    "official_ksd_market_codes_live": 5483,
+    "official_ksd_name_lookup_live": 5484,
+    "official_ksd_market_codes_live": 5484,
     "official_ksd_listing_info_live": null,
     "official_ksd_corp_basic_live": null,
     "official_ksd_shareholder_summary_live": null,
-    "official_issue_overlay_live": 48977,
-    "official_krx_listed_info_live": 48977
+    "official_issue_overlay_live": 51695,
+    "official_krx_listed_info_live": 51695
   },
   "rawReport": {
     "ok": true,
-    "saved_at": "2026-05-14T00:00:00",
+    "saved_at": "2026-05-15T00:00:00",
     "warnings": [],
     "candidate_issues": 80,
     "krx_probe": {
       "ok": true,
-      "basDt": "20260512",
+      "basDt": "20260513",
       "totalCount": 2765,
       "rows": 2718,
       "attempts": [
+        {
+          "basDt": "20260515",
+          "ok": false,
+          "resultCode": "00",
+          "resultMsg": "NORMAL SERVICE.",
+          "totalCount": 0
+        },
         {
           "basDt": "20260514",
           "ok": false,
@@ -34,13 +41,6 @@
         },
         {
           "basDt": "20260513",
-          "ok": false,
-          "resultCode": "00",
-          "resultMsg": "NORMAL SERVICE.",
-          "totalCount": 0
-        },
-        {
-          "basDt": "20260512",
           "ok": true,
           "resultCode": "00",
           "resultMsg": "NORMAL SERVICE.",
@@ -48,14 +48,14 @@
         }
       ]
     },
-    "name_lookup_rows": 5483,
+    "name_lookup_rows": 5484,
     "name_lookup_added": 0,
-    "market_code_rows": 5483,
+    "market_code_rows": 5484,
     "listing_info_rows": 0,
     "corp_basic_rows": 0,
     "shareholder_summary_rows": 0,
-    "krx_listed_rows": 48977,
-    "official_issue_overlay_rows": 48977
+    "krx_listed_rows": 51695,
+    "official_issue_overlay_rows": 51695
   },
   "rawReason": null,
   "stdoutPreview": "",
