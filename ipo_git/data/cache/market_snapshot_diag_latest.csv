@@ -1,12 +1,12 @@
 ﻿category,name,ticker,provider,ok,detail,rows,asof
-snapshot,KOSPI,^KS11,KIS,False,KIS 환경변수가 없어 국내지수 실시간 조회를 건너뜀,0,2026-05-15 08:12:49.447236
-snapshot,KOSDAQ,^KQ11,KIS,False,KIS 환경변수가 없어 국내지수 실시간 조회를 건너뜀,0,2026-05-15 08:12:49.447266
-snapshot,KOSPI,^KS11,NaverFinance,True,OK,12,2026-05-15 08:12:51.036291
-snapshot,KOSDAQ,^KQ11,NaverFinance,True,OK,12,2026-05-15 08:12:52.119687
-snapshot,USD/KRW,KRW=X,YahooHTTP,True,OK,5,2026-05-15 08:12:52.194716
-snapshot,S&P 500,^GSPC,YahooHTTP,True,OK,5,2026-05-15 08:12:52.235211
-snapshot,NASDAQ,^IXIC,YahooHTTP,True,OK,5,2026-05-15 08:12:52.328245
-snapshot,S&P500 Futures,ES=F,YahooHTTP,True,OK,4,2026-05-15 08:12:52.373930
-snapshot,NASDAQ100 Futures,NQ=F,YahooHTTP,True,OK,4,2026-05-15 08:12:52.412989
-snapshot,WTI,CL=F,YahooHTTP,True,OK,4,2026-05-15 08:12:52.454485
-snapshot,Gold,GC=F,YahooHTTP,True,OK,4,2026-05-15 08:12:52.501048
+snapshot,KOSPI,^KS11,KIS,False,KIS 환경변수가 없어 국내지수 실시간 조회를 건너뜀,0,2026-05-16 08:12:41.581421
+snapshot,KOSDAQ,^KQ11,KIS,False,KIS 환경변수가 없어 국내지수 실시간 조회를 건너뜀,0,2026-05-16 08:12:41.581454
+snapshot,KOSPI,^KS11,NaverFinance,True,OK,12,2026-05-16 08:12:44.038746
+snapshot,KOSDAQ,^KQ11,NaverFinance,True,OK,12,2026-05-16 08:12:45.707883
+snapshot,USD/KRW,KRW=X,YahooHTTP,True,OK,6,2026-05-16 08:12:45.825403
+snapshot,S&P 500,^GSPC,YahooHTTP,True,OK,5,2026-05-16 08:12:45.955717
+snapshot,NASDAQ,^IXIC,YahooHTTP,True,OK,5,2026-05-16 08:12:46.078591
+snapshot,S&P500 Futures,ES=F,YahooHTTP,True,OK,5,2026-05-16 08:12:46.172666
+snapshot,NASDAQ100 Futures,NQ=F,YahooHTTP,True,OK,5,2026-05-16 08:12:46.289325
+snapshot,WTI,CL=F,YahooHTTP,True,OK,5,2026-05-16 08:12:46.430251
+snapshot,Gold,GC=F,YahooHTTP,True,OK,5,2026-05-16 08:12:46.546705
