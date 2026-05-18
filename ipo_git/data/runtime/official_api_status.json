@@ -1,30 +1,51 @@
 {
   "ok": true,
-  "generatedAt": "2026-05-15T23:29:41.326485+00:00",
+  "generatedAt": "2026-05-18T23:29:05.044223+00:00",
   "serviceKeyConfigured": true,
   "refreshReturnCode": 0,
   "refreshSucceeded": true,
   "cachePopulated": true,
   "cacheRows": {
-    "official_ksd_name_lookup_live": 5484,
-    "official_ksd_market_codes_live": 5484,
+    "official_ksd_name_lookup_live": 5486,
+    "official_ksd_market_codes_live": 5486,
     "official_ksd_listing_info_live": null,
     "official_ksd_corp_basic_live": null,
     "official_ksd_shareholder_summary_live": null,
-    "official_issue_overlay_live": 54413,
-    "official_krx_listed_info_live": 54413
+    "official_issue_overlay_live": 57131,
+    "official_krx_listed_info_live": 57131
   },
   "rawReport": {
     "ok": true,
-    "saved_at": "2026-05-16T00:00:00",
+    "saved_at": "2026-05-19T00:00:00",
     "warnings": [],
     "candidate_issues": 80,
     "krx_probe": {
       "ok": true,
-      "basDt": "20260514",
+      "basDt": "20260515",
       "totalCount": 2765,
       "rows": 2718,
       "attempts": [
+        {
+          "basDt": "20260519",
+          "ok": false,
+          "resultCode": "00",
+          "resultMsg": "NORMAL SERVICE.",
+          "totalCount": 0
+        },
+        {
+          "basDt": "20260518",
+          "ok": false,
+          "resultCode": "00",
+          "resultMsg": "NORMAL SERVICE.",
+          "totalCount": 0
+        },
+        {
+          "basDt": "20260517",
+          "ok": false,
+          "resultCode": "00",
+          "resultMsg": "NORMAL SERVICE.",
+          "totalCount": 0
+        },
         {
           "basDt": "20260516",
           "ok": false,
@@ -34,13 +55,6 @@
         },
         {
           "basDt": "20260515",
-          "ok": false,
-          "resultCode": "00",
-          "resultMsg": "NORMAL SERVICE.",
-          "totalCount": 0
-        },
-        {
-          "basDt": "20260514",
           "ok": true,
           "resultCode": "00",
           "resultMsg": "NORMAL SERVICE.",
@@ -48,14 +62,14 @@
         }
       ]
     },
-    "name_lookup_rows": 5484,
+    "name_lookup_rows": 5486,
     "name_lookup_added": 0,
-    "market_code_rows": 5484,
+    "market_code_rows": 5486,
     "listing_info_rows": 0,
     "corp_basic_rows": 0,
     "shareholder_summary_rows": 0,
-    "krx_listed_rows": 54413,
-    "official_issue_overlay_rows": 54413
+    "krx_listed_rows": 57131,
+    "official_issue_overlay_rows": 57131
   },
   "rawReason": null,
   "stdoutPreview": "",
