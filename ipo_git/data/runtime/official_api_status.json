@@ -1,6 +1,6 @@
 {
   "ok": true,
-  "generatedAt": "2026-05-26T23:44:16.419755+00:00",
+  "generatedAt": "2026-05-27T23:43:54.736855+00:00",
   "serviceKeyConfigured": true,
   "refreshReturnCode": 0,
   "refreshSucceeded": true,
@@ -11,20 +11,27 @@
     "official_ksd_listing_info_live": null,
     "official_ksd_corp_basic_live": null,
     "official_ksd_shareholder_summary_live": null,
-    "official_issue_overlay_live": 70717,
-    "official_krx_listed_info_live": 70717
+    "official_issue_overlay_live": 73434,
+    "official_krx_listed_info_live": 73434
   },
   "rawReport": {
     "ok": true,
-    "saved_at": "2026-05-27T00:00:00",
+    "saved_at": "2026-05-28T00:00:00",
     "warnings": [],
     "candidate_issues": 80,
     "krx_probe": {
       "ok": true,
-      "basDt": "20260522",
+      "basDt": "20260526",
       "totalCount": 2764,
       "rows": 2717,
       "attempts": [
+        {
+          "basDt": "20260528",
+          "ok": false,
+          "resultCode": "00",
+          "resultMsg": "NORMAL SERVICE.",
+          "totalCount": 0
+        },
         {
           "basDt": "20260527",
           "ok": false,
@@ -34,34 +41,6 @@
         },
         {
           "basDt": "20260526",
-          "ok": false,
-          "resultCode": "00",
-          "resultMsg": "NORMAL SERVICE.",
-          "totalCount": 0
-        },
-        {
-          "basDt": "20260525",
-          "ok": false,
-          "resultCode": "00",
-          "resultMsg": "NORMAL SERVICE.",
-          "totalCount": 0
-        },
-        {
-          "basDt": "20260524",
-          "ok": false,
-          "resultCode": "00",
-          "resultMsg": "NORMAL SERVICE.",
-          "totalCount": 0
-        },
-        {
-          "basDt": "20260523",
-          "ok": false,
-          "resultCode": "00",
-          "resultMsg": "NORMAL SERVICE.",
-          "totalCount": 0
-        },
-        {
-          "basDt": "20260522",
           "ok": true,
           "resultCode": "00",
           "resultMsg": "NORMAL SERVICE.",
@@ -75,8 +54,8 @@
     "listing_info_rows": 0,
     "corp_basic_rows": 0,
     "shareholder_summary_rows": 0,
-    "krx_listed_rows": 70717,
-    "official_issue_overlay_rows": 70717
+    "krx_listed_rows": 73434,
+    "official_issue_overlay_rows": 73434
   },
   "rawReason": null,
   "stdoutPreview": "",
