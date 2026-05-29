@@ -1,7 +1,7 @@
 {
   "name": "official_krx_listed_info_live",
-  "row_count": 73434,
-  "saved_at": "2026-05-28T00:00:00",
+  "row_count": 76151,
+  "saved_at": "2026-05-29T00:00:00",
   "source": "KRX",
   "notes": "KRX 상장종목정보 API"
 }
