@@ -1,19 +1,32 @@
 {
-  "ok": false,
+  "ok": true,
   "serviceKeyConfigured": true,
   "manualTests": {
     "krxListedInfo": "https://apis.data.go.kr/1160100/service/GetKrxListedInfoService/getItemInfo?serviceKey=***&numOfRows=1&pageNo=1&resultType=xml",
     "ksdStockSvc": "http://api.seibro.or.kr/openapi/service/StockSvc/getKDRSecnInfo?ServiceKey=***&caltotMartTpcd=12",
     "ksdWadl": "https://api.seibro.or.kr/openapi/service/StockSvc?_wadl&type=xml"
   },
-  "diagnosis": "",
+  "diagnosis": "KRX key works, but KSD StockSvc backend still says SERVICE KEY IS NOT REGISTERED ERROR. This usually means per-service backend registration/sync lag on the provider side.",
   "scopes": {
     "krx": {
-      "ok": false,
+      "ok": true,
       "scope": "KRX_LISTED_INFO",
-      "error": "HTTPSConnectionPool(host='apis.data.go.kr', port=443): Read timed out. (read timeout=20)",
       "baseUrl": "https://apis.data.go.kr/1160100/service/GetKrxListedInfoService",
-      "endpoint": "getItemInfo"
+      "endpoint": "getItemInfo",
+      "httpStatus": 200,
+      "resultCode": "00",
+      "resultMsg": "NORMAL SERVICE.",
+      "itemCount": 4026153,
+      "firstItemKeys": [
+        "basDt",
+        "srtnCd",
+        "isinCd",
+        "mrktCtg",
+        "itmsNm",
+        "crno",
+        "corpNm"
+      ],
+      "url": "https://apis.data.go.kr/1160100/service/GetKrxListedInfoService/getItemInfo?serviceKey=%2A%2A%2A&numOfRows=1&pageNo=1&resultType=json"
     },
     "ksdStock": {
       "ok": false,
