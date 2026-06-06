@@ -1,7 +1,7 @@
 {
   "ok": false,
-  "generatedAt": "2026-06-04T23:58:38.206007+00:00",
-  "upstreamUpdatedAt": "2026-06-05T00:00:00",
+  "generatedAt": "2026-06-06T00:59:43.429236+00:00",
+  "upstreamUpdatedAt": "2026-06-06T00:00:00",
   "schemaVersion": 3,
   "summary": {
     "itemCount": 1015,
@@ -9,8 +9,8 @@
     "marketCount": 9,
     "next30d": {
       "subscription": 16,
-      "listing": 4,
-      "unlock": 25
+      "listing": 3,
+      "unlock": 24
     }
   },
   "itemCoverage": {
@@ -22,7 +22,7 @@
     "returnPct": 642,
     "institutionalCompetitionRatio": 120,
     "lockupCommitmentRatio": 104,
-    "existingShareholderRatio": 4,
+    "existingShareholderRatio": 3,
     "ma20": 165,
     "ma60": 157,
     "rsi14": 160,
@@ -41,7 +41,7 @@
     "subscription_end": 30
   },
   "cacheRows": {
-    "dart_corp_codes": 118245,
+    "dart_corp_codes": 118253,
     "ir_38_live": 1,
     "kind_corp_download_live": 2764,
     "kind_listing_live": 0,
@@ -49,8 +49,8 @@
     "kind_pubprice_live": 0,
     "market_snapshot_diag_latest": 11,
     "market_snapshot_last_success": 9,
-    "official_issue_overlay_live": 87017,
-    "official_krx_listed_info_live": 87017,
+    "official_issue_overlay_live": 89733,
+    "official_krx_listed_info_live": 89733,
     "official_ksd_market_codes_live": 5490,
     "official_ksd_name_lookup_live": 5490,
     "public_quotes_latest": 742,
