@@ -1,7 +1,7 @@
 {
   "status": "ok",
-  "generatedAt": "2026-06-17T00:03:09.561363+00:00",
-  "upstreamUpdatedAt": "2026-06-17T00:00:00",
+  "generatedAt": "2026-06-18T00:13:00.794357+00:00",
+  "upstreamUpdatedAt": "2026-06-18T00:00:00",
   "summary": {
     "itemCount": 1016,
     "eventCount": 2388,
@@ -9,7 +9,7 @@
     "next30d": {
       "subscription": 16,
       "listing": 5,
-      "unlock": 19
+      "unlock": 17
     }
   },
   "source": "/home/runner/work/offering_reminder/offering_reminder/ipo_git"
