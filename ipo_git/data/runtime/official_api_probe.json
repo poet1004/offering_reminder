@@ -6,7 +6,7 @@
     "ksdStockSvc": "http://api.seibro.or.kr/openapi/service/StockSvc/getKDRSecnInfo?ServiceKey=***&caltotMartTpcd=12",
     "ksdWadl": "https://api.seibro.or.kr/openapi/service/StockSvc?_wadl&type=xml"
   },
-  "diagnosis": "",
+  "diagnosis": "KRX key works, but KSD StockSvc backend still says SERVICE KEY IS NOT REGISTERED ERROR. This usually means per-service backend registration/sync lag on the provider side.",
   "scopes": {
     "krx": {
       "ok": true,
@@ -16,7 +16,7 @@
       "httpStatus": 200,
       "resultCode": "00",
       "resultMsg": "NORMAL SERVICE.",
-      "itemCount": 4059297,
+      "itemCount": 4062058,
       "firstItemKeys": [
         "basDt",
         "srtnCd",
@@ -35,28 +35,44 @@
       "endpoint": "getKDRSecnInfo",
       "attempts": [
         {
-          "url": "http://api.seibro.or.kr/openapi/service/StockSvc/getKDRSecnInfo",
+          "url": "https://api.seibro.or.kr/openapi/service/StockSvc/getKDRSecnInfo?ServiceKey=%2A%2A%2A&caltotMartTpcd=12",
+          "httpStatus": 200,
           "keyParam": "ServiceKey",
-          "ok": false,
-          "error": "HTTPConnectionPool(host='api.seibro.or.kr', port=80): Max retries exceeded with url: /openapi/service/StockSvc/getKDRSecnInfo?ServiceKey=4344393cd8b52efbda50379ba1a98afa85ab94b28f93f998d3de23d8f5700488&caltotMartTpcd=12 (Caused by ConnectTimeoutError(<HTTPConnection(host='api.seibro.or.kr', port=80) at 0x7fc7ad1a0b90>, 'Connection to api.seibro.or.kr timed out. (connect timeout=20)'))"
+          "resultCode": "99",
+          "resultMsg": "SERVICE KEY IS NOT REGISTERED ERROR.",
+          "itemCount": 0,
+          "firstItemKeys": [],
+          "ok": false
         },
         {
-          "url": "http://api.seibro.or.kr/openapi/service/StockSvc/getKDRSecnInfo",
+          "url": "https://api.seibro.or.kr/openapi/service/StockSvc/getKDRSecnInfo?serviceKey=%2A%2A%2A&caltotMartTpcd=12",
+          "httpStatus": 200,
           "keyParam": "serviceKey",
-          "ok": false,
-          "error": "HTTPConnectionPool(host='api.seibro.or.kr', port=80): Max retries exceeded with url: /openapi/service/StockSvc/getKDRSecnInfo?serviceKey=4344393cd8b52efbda50379ba1a98afa85ab94b28f93f998d3de23d8f5700488&caltotMartTpcd=12 (Caused by ConnectTimeoutError(<HTTPConnection(host='api.seibro.or.kr', port=80) at 0x7fc7ad1a2a50>, 'Connection to api.seibro.or.kr timed out. (connect timeout=20)'))"
+          "resultCode": "99",
+          "resultMsg": "SERVICE KEY IS NOT REGISTERED ERROR.",
+          "itemCount": 0,
+          "firstItemKeys": [],
+          "ok": false
         },
         {
-          "url": "https://api.seibro.or.kr/openapi/service/StockSvc/getKDRSecnInfo",
+          "url": "https://api.seibro.or.kr/openapi/service/StockSvc/getKDRSecnInfo?ServiceKey=%2A%2A%2A&caltotMartTpcd=12",
+          "httpStatus": 200,
           "keyParam": "ServiceKey",
-          "ok": false,
-          "error": "('Connection aborted.', RemoteDisconnected('Remote end closed connection without response'))"
+          "resultCode": "99",
+          "resultMsg": "SERVICE KEY IS NOT REGISTERED ERROR.",
+          "itemCount": 0,
+          "firstItemKeys": [],
+          "ok": false
         },
         {
-          "url": "https://api.seibro.or.kr/openapi/service/StockSvc/getKDRSecnInfo",
+          "url": "https://api.seibro.or.kr/openapi/service/StockSvc/getKDRSecnInfo?serviceKey=%2A%2A%2A&caltotMartTpcd=12",
+          "httpStatus": 200,
           "keyParam": "serviceKey",
-          "ok": false,
-          "error": "('Connection aborted.', RemoteDisconnected('Remote end closed connection without response'))"
+          "resultCode": "99",
+          "resultMsg": "SERVICE KEY IS NOT REGISTERED ERROR.",
+          "itemCount": 0,
+          "firstItemKeys": [],
+          "ok": false
         }
       ]
     }
