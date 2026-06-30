@@ -16,7 +16,7 @@
       "httpStatus": 200,
       "resultCode": "00",
       "resultMsg": "NORMAL SERVICE.",
-      "itemCount": 4075863,
+      "itemCount": 4078625,
       "firstItemKeys": [
         "basDt",
         "srtnCd",
