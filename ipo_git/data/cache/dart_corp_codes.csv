@@ -83375,7 +83375,6 @@
 01286935,코어메탈,"Coremetal Co., Ltd.",,20230223,코어메탈
 01012367,에이유이,AUE CORP,,20230223,에이유이
 01214512,알프스이십일,"Alps21 Co., Ltd.",,20230223,알프스이십일
-01739598,프라임방재,"PRIME BANG-JAE Co., Ltd.",,20230427,프라임방재
 01736087,에솜,"ESOM Co., Ltd.",,20230427,에솜
 01733442,혜은,HYEUN Corp.,,20230427,혜은
 01590689,지에스커넥트,GSCONNECT,,20230427,지에스커넥트
@@ -98171,7 +98170,6 @@
 01686409,금강도시환경,KUMKANG CITY ENT,,20250227,금강도시환경
 01898457,아이엠히어로제일차,"IM Hero the 1st Co., Ltd.",,20250227,아이엠히어로제일차
 01875447,디에스풍무,"DS Pungmu Co., Ltd.",,20241024,디에스풍무
-01875474,폴앤어스,"PAULNUS Co.,Ltd.",,20241024,폴앤어스
 01874545,한국관광개발사업단,KOREA TOURISM DEVELOPMENT PROJECT GROUP,,20241024,한국관광개발사업단
 00111810,대웅,"DAEWOONG CO.,LTD",003090,20241025,대웅
 01876507,DAIMEISHOUJI(SINGAPORE)PTELTD,DAIMEI SHOUJI(SINGAPORE)PTE LTD,,20241031,daimeishoujipteltd
@@ -104350,7 +104348,6 @@
 00916075,삼진전화,"Samjin Electro Mrtallurgie Co.,LTD",,20260330,삼진전화
 01908417,우분트월드,"Ubuntuworld Co., Ltd.",,20260330,우분트월드
 01185113,씨스퀘어자산운용,Csquared Global Asset Management,,20260330,씨스퀘어자산운용
-00126089,DH오토넥스,"DHAUTONEX CO.,LTD",000300,20260330,dh오토넥스
 00245047,삼성선물,Samsung Futures Inc.,,20260330,삼성선물
 01602638,한싹,"Hanssak Co., Ltd.",430690,20260331,한싹
 01998881,케이비인프라제사차,"KB Infra4th Co.,Ltd.",,20260331,kb인프라제사차
@@ -110606,7 +110603,6 @@
 01417474,사천수산업협동조합,sacheon-suhyup,,20251215,사천수산업협동조합
 00769370,신원스틸,"SHINWONSTEEL CO, Ltd",,20251215,신원스틸
 01970663,뉴스타영종유동화전문유한회사,"New Star Yeongjong Securitization Specialty Co., Ltd.",,20251215,뉴스타영종유동화전문유한회사
-00245375,디비월드,Dongbu World Inc.,,20251215,db월드
 01970672,방이신용협동조합,bangi credit union,,20251215,방이신용협동조합
 01644519,율리시스코리아,Ulysses Korea,,20251215,율리시스코리아
 00148504,한국스탠다드차타드은행,Standard Chartered Bank Korea Ltd,000110,20251215,한국스탠다드차타드은행
@@ -118260,6 +118256,10 @@
 01743829,베어로보틱스코리아,Bear Robotics Korea Inc.,,20260629,베어로보틱스코리아
 02038450,뉴스타시나제사차,"Newstar Sina Jesacha Co., Ltd.",,20260709,뉴스타시나제사차
 02038566,네오뷰,"Neovue Co., LTD",,20260709,네오뷰
+00245375,디비월드,Dongbu World Inc.,,20260713,db월드
+00126089,DH오토넥스,"DHAUTONEX CO.,LTD",000300,20260713,dh오토넥스
+01065013,우정바이오,"WOOJUNG BIO, Inc.",215380,20260713,우정바이오
+01501764,레메디,REMEDI Inc.,387690,20260713,레메디
 01511488,코오롱이앤씨,"KOLON E&C, INC.",,20260630,코오롱이앤씨
 02036470,용인역북서희제일차,na,,20260630,용인역북서희제일차
 02038432,SimwonAmericaCorp.,Simwon America Corp.,,20260709,simwonamericacorp
@@ -118337,6 +118337,7 @@
 00154888,상미당홀딩스,"Sangmidang Holdings CO., LTD.",,20260703,상미당홀딩스
 02036850,네오펄스,"NeoPulse Co., Ltd",,20260702,네오펄스
 02036869,아이엠기업인수목적1호,IM Special Purpose Acquisition Company Ⅰ,,20260702,아이엠스팩1호
+01875474,스토리아크스튜디오,"STORYARCSTUDIO Co.,Ltd.",,20260713,스토리아크스튜디오
 00684918,아이비케이투자증권,"IBK Securities Co., Ltd.",,20260701,ibk투자증권
 02036984,데이톤,"DATON CO.,LTD.",,20260702,데이톤
 02036993,이클라우드에이아이,E Cloud AI Inc.,,20260702,이클라우드에이아이
@@ -118355,7 +118356,6 @@
 00829380,피제이메탈,"PJ METAL CO., LTD",128660,20260702,피제이메탈
 00915508,알엔투테크놀로지,"RN2 Technologies Co., Ltd.",148250,20260702,알엔투테크놀로지
 01234507,매일유업,"Maeil Dairies Co., Ltd.",267980,20260702,매일유업
-01501764,레메디,REMEDI Inc.,,20260708,레메디
 00109806,삼일씨엔에스,"SAMIL C&S CO.,LTD",004440,20260701,삼일씨엔에스
 00164618,현대사료,HYUNDAI FEED Inc.,016790,20260701,현대사료
 00120182,NH투자증권,"NH INVESTMENT & SECURITIES CO.,LTD.",005940,20260701,nh투자증권
@@ -118408,15 +118408,18 @@
 01036367,아크솔루션스,Ark Solutions Inc.,203690,20260708,아크솔루션스
 02038177,상상테크,SANGSANGTECH,,20260709,상상테크
 00862905,이지스자산운용,"IGIS Asset Management Co., Ltd",,20260709,이지스자산운용
+02037938,케이티인터내쇼날,"KET INTERNATIONAL CO.,LTD.",,20260713,케이티인터내쇼날
 00584007,이랜드팜앤푸드,ELAND FARM AND FOOD LIMITED,,20260630,이랜드팜앤푸드
 00352499,링네트,"RingNet Co., Ltd.",042500,20260701,링네트
+01739598,프라임방재,"PRIME BANG-JAE Co., Ltd.",,20260713,프라임방재
+02039033,알티피코리아,"RTP KOREA Co., Ltd.",,20260713,알티피코리아
+02039042,케이더블유티피제삼차,KWTP 3RD CORPORATION,,20260713,케이더블유티피제삼차
 01990278,케이에이에스,"KAS CO.,Ltd",,20260708,케이에이에스
 01576014,두산밥캣코리아,"Doosan Bobcat Korea Co., Ltd.",,20260708,두산밥캣코리아
 01918353,디에이치엠씨(DHMC),"DHMC CO., LTD.",,20260706,디에이치엠씨
 01122406,재세능원,JAE SE ENERGY CO. LTD,,20260707,재세능원
 00922702,제이티비씨,"JTBC Co., Ltd",,20260707,제이티비씨
 01582741,디티피아,DTPIA,,20260707,디티피아
-02037938,케이티인터내쇼날,"KET INTERNATIONAL CO.,LTD.",,20260707,케이티인터내쇼날
 02037956,제이제이에셋,"JJ Asset co., Ltd",,20260707,제이제이에셋
 02038034,시큐코리아,SECUKOREA,,20260707,시큐코리아
 02038052,엘에스에스메티스제4호창업벤처전문사모투자,LSS METIS IV PRIVATE EQUITY FUND,,20260707,엘에스에스메티스제4호창업벤처전문사모투자
@@ -118428,6 +118431,7 @@
 00435367,태인이앤씨,TAEINENC,,20260710,태인이앤씨
 01827246,태인이앤씨,"TAEIN E&C Co., Ltd.",,20260710,태인이앤씨
 01687301,도하개발,Doha Development Limited Liability Company,,20260710,도하개발
+02038751,골드나라,"Co.,Ltd GOLDNARA",,20260713,골드나라
 02038928,이오제오차유동화전문유한회사,"EO 5th Asset Securitization Specialty Co., Ltd.",,20260710,이오제오차유동화전문유한회사
 02038937,유플러스파이브지제팔십팔차유동화전문유한회사,"Uplus 5G Eighty Eighth Securitization Specialty Co., Ltd.",,20260710,유플러스파이브지제팔십팔차유동화전문유한회사
 00824473,전남광주통합특별시민프로축구단,Gwangju Football Club,,20260710,전남광주통합특별시민프로축구단
@@ -118463,12 +118467,10 @@
 02035897,프롬해운,"FROM SHIPPING CO.,LTD",,20260703,프롬해운
 00106641,기아,KIA CORPORATION,000270,20260709,기아
 00396925,엠로,"EMRO., Incorporated",058970,20260709,엠로
-01065013,우정바이오,"WOOJUNG BIO, Inc.",215380,20260709,우정바이오
 00819541,트라비스엘리베이터,"TRAVIS ELEVATOR CO.,LTD",,20260703,트라비스엘리베이터
 02036115,슈퍼시리즈제십구차유동화전문유한회사,"Super Series 19th Securitization Specialty Co., Ltd.",,20260629,슈퍼시리즈제십구차유동화전문유한회사
 00160667,한국후지쯔,FUJITSU KOREA LIMITED,,20260706,한국후지쯔
 02030069,한국후지필름라이프사이언스,"FUJIFILM Life Sciences Korea Co., Ltd.",,20260708,한국후지필름라이프사이언스
-02038751,골드나라,"Co.,Ltd GOLDNARA",,20260710,골드나라
 02038894,한솔제오십칠차,hansol57th corporation,,20260710,한솔제오십칠차
 02037831,팩토리,factory,,20260707,팩토리
 02037840,제이엠티,JMT,,20260707,제이엠티
