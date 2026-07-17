@@ -1,6 +1,6 @@
 {
   "ok": true,
-  "generatedAt": "2026-07-16T23:17:19.882835+00:00",
+  "generatedAt": "2026-07-17T23:28:02.518764+00:00",
   "serviceKeyConfigured": true,
   "refreshReturnCode": 0,
   "refreshSucceeded": true,
@@ -11,12 +11,12 @@
     "official_ksd_listing_info_live": null,
     "official_ksd_corp_basic_live": null,
     "official_ksd_shareholder_summary_live": null,
-    "official_issue_overlay_live": 168299,
-    "official_krx_listed_info_live": 168299
+    "official_issue_overlay_live": 171004,
+    "official_krx_listed_info_live": 171004
   },
   "rawReport": {
     "ok": true,
-    "saved_at": "2026-07-17T00:00:00",
+    "saved_at": "2026-07-18T00:00:00",
     "warnings": [],
     "candidate_issues": 80,
     "krx_probe": {
@@ -25,6 +25,13 @@
       "totalCount": 2758,
       "rows": 2705,
       "attempts": [
+        {
+          "basDt": "20260718",
+          "ok": false,
+          "resultCode": "00",
+          "resultMsg": "NORMAL SERVICE.",
+          "totalCount": 0
+        },
         {
           "basDt": "20260717",
           "ok": false,
@@ -54,8 +61,8 @@
     "listing_info_rows": 0,
     "corp_basic_rows": 0,
     "shareholder_summary_rows": 0,
-    "krx_listed_rows": 168299,
-    "official_issue_overlay_rows": 168299
+    "krx_listed_rows": 171004,
+    "official_issue_overlay_rows": 171004
   },
   "rawReason": null,
   "stdoutPreview": "",
