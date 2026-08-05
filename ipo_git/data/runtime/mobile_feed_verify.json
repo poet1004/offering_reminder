@@ -1,16 +1,16 @@
 {
   "ok": false,
-  "generatedAt": "2026-08-04T23:37:02.554190+00:00",
-  "upstreamUpdatedAt": "2026-08-05T00:00:00",
+  "generatedAt": "2026-08-05T23:37:07.111922+00:00",
+  "upstreamUpdatedAt": "2026-08-06T00:00:00",
   "schemaVersion": 3,
   "summary": {
     "itemCount": 1028,
     "eventCount": 2395,
     "marketCount": 9,
     "next30d": {
-      "subscription": 11,
+      "subscription": 10,
       "listing": 4,
-      "unlock": 8
+      "unlock": 9
     }
   },
   "itemCoverage": {
@@ -41,7 +41,7 @@
     "subscription_end": 30
   },
   "cacheRows": {
-    "dart_corp_codes": 118589,
+    "dart_corp_codes": 118664,
     "ir_38_live": 1,
     "kind_corp_download_live": 2759,
     "kind_listing_live": 0,
@@ -58,7 +58,7 @@
     "schedule_38_demand_live": 120,
     "schedule_38_live": 30,
     "schedule_38_new_listing_live": 84,
-    "seibro_release_live": 58
+    "seibro_release_live": 59
   },
   "warnings": [
     "kind_listing_live rows=0",
