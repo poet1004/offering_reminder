@@ -1,7 +1,7 @@
 {
   "ok": false,
-  "generatedAt": "2026-08-28T06:40:08.579116+00:00",
-  "upstreamUpdatedAt": "2026-08-28T00:00:00",
+  "generatedAt": "2026-08-29T05:11:45.870588+00:00",
+  "upstreamUpdatedAt": "2026-08-29T00:00:00",
   "schemaVersion": 3,
   "summary": {
     "itemCount": 1036,
@@ -18,18 +18,18 @@
     "listingDate": 891,
     "subscriptionStart": 30,
     "underwriters": 308,
-    "currentPrice": 738,
-    "returnPct": 653,
+    "currentPrice": 737,
+    "returnPct": 652,
     "institutionalCompetitionRatio": 120,
-    "lockupCommitmentRatio": 102,
-    "existingShareholderRatio": 2,
-    "ma20": 183,
-    "ma60": 173,
-    "rsi14": 176,
-    "signal": 183
+    "lockupCommitmentRatio": 101,
+    "existingShareholderRatio": 0,
+    "ma20": 182,
+    "ma60": 172,
+    "rsi14": 175,
+    "signal": 182
   },
   "listedItems": 891,
-  "listedItemsWithSymbol": 745,
+  "listedItemsWithSymbol": 744,
   "eventTypeCounts": {
     "listing": 891,
     "unlock_15d": 292,
