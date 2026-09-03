@@ -1,5 +1,5 @@
 {
-  "ok": false,
+  "ok": true,
   "serviceKeyConfigured": true,
   "manualTests": {
     "krxListedInfo": "https://apis.data.go.kr/1160100/service/GetKrxListedInfoService/getItemInfo?serviceKey=***&numOfRows=1&pageNo=1&resultType=xml",
@@ -9,11 +9,24 @@
   "diagnosis": "",
   "scopes": {
     "krx": {
-      "ok": false,
+      "ok": true,
       "scope": "KRX_LISTED_INFO",
-      "error": "HTTPSConnectionPool(host='apis.data.go.kr', port=443): Max retries exceeded with url: /1160100/service/GetKrxListedInfoService/getItemInfo?serviceKey=4344393cd8b52efbda50379ba1a98afa85ab94b28f93f998d3de23d8f5700488&numOfRows=1&pageNo=1&resultType=json (Caused by ConnectTimeoutError(<HTTPSConnection(host='apis.data.go.kr', port=443) at 0x7fda72b17210>, 'Connection to apis.data.go.kr timed out. (connect timeout=20)'))",
       "baseUrl": "https://apis.data.go.kr/1160100/service/GetKrxListedInfoService",
-      "endpoint": "getItemInfo"
+      "endpoint": "getItemInfo",
+      "httpStatus": 200,
+      "resultCode": "00",
+      "resultMsg": "NORMAL SERVICE.",
+      "itemCount": 4200000,
+      "firstItemKeys": [
+        "basDt",
+        "srtnCd",
+        "isinCd",
+        "mrktCtg",
+        "itmsNm",
+        "crno",
+        "corpNm"
+      ],
+      "url": "https://apis.data.go.kr/1160100/service/GetKrxListedInfoService/getItemInfo?serviceKey=%2A%2A%2A&numOfRows=1&pageNo=1&resultType=json"
     },
     "ksdStock": {
       "ok": false,

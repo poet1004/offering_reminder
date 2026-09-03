@@ -1,14 +1,14 @@
 {
   "ok": false,
-  "generatedAt": "2026-09-02T00:42:24.911147+00:00",
-  "upstreamUpdatedAt": "2026-09-02T00:00:00",
+  "generatedAt": "2026-09-03T00:41:50.097310+00:00",
+  "upstreamUpdatedAt": "2026-09-03T00:00:00",
   "schemaVersion": 3,
   "summary": {
     "itemCount": 1037,
     "eventCount": 2398,
     "marketCount": 9,
     "next30d": {
-      "subscription": 22,
+      "subscription": 21,
       "listing": 2,
       "unlock": 11
     }
@@ -24,7 +24,7 @@
     "lockupCommitmentRatio": 103,
     "existingShareholderRatio": 2,
     "ma20": 184,
-    "ma60": 174,
+    "ma60": 175,
     "rsi14": 176,
     "signal": 184
   },
@@ -41,16 +41,16 @@
     "subscription_end": 30
   },
   "cacheRows": {
-    "dart_corp_codes": 118821,
+    "dart_corp_codes": 118831,
     "ir_38_live": 1,
-    "kind_corp_download_live": 2759,
+    "kind_corp_download_live": 2758,
     "kind_listing_live": 0,
     "kind_public_offering_live": 0,
     "kind_pubprice_live": 0,
     "market_snapshot_diag_latest": 11,
     "market_snapshot_last_success": 9,
-    "official_issue_overlay_live": 222355,
-    "official_krx_listed_info_live": 222355,
+    "official_issue_overlay_live": 225055,
+    "official_krx_listed_info_live": 225055,
     "official_ksd_market_codes_live": 5506,
     "official_ksd_name_lookup_live": 5506,
     "public_quotes_latest": 764,
