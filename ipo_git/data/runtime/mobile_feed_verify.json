@@ -1,16 +1,16 @@
 {
   "ok": false,
-  "generatedAt": "2026-09-25T01:02:58.708927+00:00",
-  "upstreamUpdatedAt": "2026-09-25T00:00:00",
+  "generatedAt": "2026-09-26T01:02:13.008956+00:00",
+  "upstreamUpdatedAt": "2026-09-26T00:00:00",
   "schemaVersion": 3,
   "summary": {
     "itemCount": 1049,
     "eventCount": 2405,
     "marketCount": 9,
     "next30d": {
-      "subscription": 26,
+      "subscription": 28,
       "listing": 4,
-      "unlock": 3
+      "unlock": 2
     }
   },
   "itemCoverage": {
@@ -58,7 +58,7 @@
     "schedule_38_demand_live": 120,
     "schedule_38_live": 30,
     "schedule_38_new_listing_live": 84,
-    "seibro_release_live": 49
+    "seibro_release_live": 46
   },
   "warnings": [
     "kind_listing_live rows=0",
