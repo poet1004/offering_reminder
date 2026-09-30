@@ -38,25 +38,25 @@
           "url": "http://api.seibro.or.kr/openapi/service/StockSvc/getKDRSecnInfo",
           "keyParam": "ServiceKey",
           "ok": false,
-          "error": "HTTPConnectionPool(host='api.seibro.or.kr', port=80): Max retries exceeded with url: /openapi/service/StockSvc/getKDRSecnInfo?ServiceKey=4344393cd8b52efbda50379ba1a98afa85ab94b28f93f998d3de23d8f5700488&caltotMartTpcd=12 (Caused by ConnectTimeoutError(<HTTPConnection(host='api.seibro.or.kr', port=80) at 0x7f2f6ba7bfd0>, 'Connection to api.seibro.or.kr timed out. (connect timeout=20)'))"
+          "error": "mismatched tag: line 13, column 165"
         },
         {
           "url": "http://api.seibro.or.kr/openapi/service/StockSvc/getKDRSecnInfo",
           "keyParam": "serviceKey",
           "ok": false,
-          "error": "HTTPConnectionPool(host='api.seibro.or.kr', port=80): Max retries exceeded with url: /openapi/service/StockSvc/getKDRSecnInfo?serviceKey=4344393cd8b52efbda50379ba1a98afa85ab94b28f93f998d3de23d8f5700488&caltotMartTpcd=12 (Caused by ConnectTimeoutError(<HTTPConnection(host='api.seibro.or.kr', port=80) at 0x7f2f6ba89810>, 'Connection to api.seibro.or.kr timed out. (connect timeout=20)'))"
+          "error": "mismatched tag: line 13, column 165"
         },
         {
           "url": "https://api.seibro.or.kr/openapi/service/StockSvc/getKDRSecnInfo",
           "keyParam": "ServiceKey",
           "ok": false,
-          "error": "('Connection aborted.', RemoteDisconnected('Remote end closed connection without response'))"
+          "error": "mismatched tag: line 13, column 165"
         },
         {
           "url": "https://api.seibro.or.kr/openapi/service/StockSvc/getKDRSecnInfo",
           "keyParam": "serviceKey",
           "ok": false,
-          "error": "('Connection aborted.', RemoteDisconnected('Remote end closed connection without response'))"
+          "error": "mismatched tag: line 13, column 165"
         }
       ]
     }
