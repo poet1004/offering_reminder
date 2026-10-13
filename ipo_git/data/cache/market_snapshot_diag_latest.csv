@@ -1,16 +1,16 @@
 ﻿category,name,ticker,provider,ok,detail,rows,asof
-snapshot,KOSPI,^KS11,KIS,False,KIS 환경변수가 없어 국내지수 실시간 조회를 건너뜀,0,2026-10-10 10:46:16.379181
-snapshot,KOSDAQ,^KQ11,KIS,False,KIS 환경변수가 없어 국내지수 실시간 조회를 건너뜀,0,2026-10-10 10:46:16.379196
-snapshot,KOSPI,^KS11,NaverFinance,False,410 Client Error: 410 for url: https://finance.naver.com/sise/sise_index_day.nhn?code=KOSPI&page=1,0,2026-10-10 10:46:17.787753
-snapshot,KOSDAQ,^KQ11,NaverFinance,False,410 Client Error: 410 for url: https://finance.naver.com/sise/sise_index_day.nhn?code=KOSDAQ&page=1,0,2026-10-10 10:46:18.914851
-snapshot,KOSPI,^KS11,PyKRX,False,'시장',0,2026-10-10 10:46:19.636217
-snapshot,KOSDAQ,^KQ11,PyKRX,False,'시장',0,2026-10-10 10:46:19.636557
-snapshot,KOSPI,^KS11,YahooHTTP,True,OK,5,2026-10-10 10:46:19.772856
-snapshot,KOSDAQ,^KQ11,YahooHTTP,True,OK,5,2026-10-10 10:46:19.835742
-snapshot,USD/KRW,KRW=X,YahooHTTP,True,OK,6,2026-10-10 10:46:19.900226
-snapshot,S&P 500,^GSPC,YahooHTTP,True,OK,5,2026-10-10 10:46:19.964986
-snapshot,NASDAQ,^IXIC,YahooHTTP,True,OK,5,2026-10-10 10:46:20.030778
-snapshot,S&P500 Futures,ES=F,YahooHTTP,True,OK,5,2026-10-10 10:46:20.095876
-snapshot,NASDAQ100 Futures,NQ=F,YahooHTTP,True,OK,5,2026-10-10 10:46:20.158074
-snapshot,WTI,CL=F,YahooHTTP,True,OK,5,2026-10-10 10:46:20.220764
-snapshot,Gold,GC=F,YahooHTTP,True,OK,5,2026-10-10 10:46:20.287502
+snapshot,KOSPI,^KS11,KIS,False,KIS 환경변수가 없어 국내지수 실시간 조회를 건너뜀,0,2026-10-13 12:04:15.531516
+snapshot,KOSDAQ,^KQ11,KIS,False,KIS 환경변수가 없어 국내지수 실시간 조회를 건너뜀,0,2026-10-13 12:04:15.531549
+snapshot,KOSPI,^KS11,NaverFinance,False,410 Client Error: 410 for url: https://finance.naver.com/sise/sise_index_day.nhn?code=KOSPI&page=1,0,2026-10-13 12:04:17.027554
+snapshot,KOSDAQ,^KQ11,NaverFinance,False,410 Client Error: 410 for url: https://finance.naver.com/sise/sise_index_day.nhn?code=KOSDAQ&page=1,0,2026-10-13 12:04:18.199667
+snapshot,KOSPI,^KS11,PyKRX,False,'시장',0,2026-10-13 12:04:18.722359
+snapshot,KOSDAQ,^KQ11,PyKRX,False,'시장',0,2026-10-13 12:04:18.722807
+snapshot,KOSPI,^KS11,YahooHTTP,True,OK,5,2026-10-13 12:04:18.921881
+snapshot,KOSDAQ,^KQ11,YahooHTTP,True,OK,5,2026-10-13 12:04:19.161801
+snapshot,USD/KRW,KRW=X,YahooHTTP,True,OK,4,2026-10-13 12:04:19.249634
+snapshot,S&P 500,^GSPC,YahooHTTP,True,OK,5,2026-10-13 12:04:19.337953
+snapshot,NASDAQ,^IXIC,YahooHTTP,True,OK,5,2026-10-13 12:04:19.425544
+snapshot,S&P500 Futures,ES=F,YahooHTTP,True,OK,5,2026-10-13 12:04:19.516876
+snapshot,NASDAQ100 Futures,NQ=F,YahooHTTP,True,OK,5,2026-10-13 12:04:19.606830
+snapshot,WTI,CL=F,YahooHTTP,True,OK,5,2026-10-13 12:04:19.740457
+snapshot,Gold,GC=F,YahooHTTP,True,OK,5,2026-10-13 12:04:19.838001
