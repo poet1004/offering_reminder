@@ -1,21 +1,21 @@
 {
   "ok": false,
-  "generatedAt": "2026-10-13T03:37:15.628286+00:00",
-  "upstreamUpdatedAt": "2026-10-13T00:00:00",
+  "generatedAt": "2026-10-14T01:44:54.866711+00:00",
+  "upstreamUpdatedAt": "2026-10-14T00:00:00",
   "schemaVersion": 3,
   "summary": {
     "itemCount": 1058,
-    "eventCount": 2409,
+    "eventCount": 2410,
     "marketCount": 9,
     "next30d": {
-      "subscription": 42,
-      "listing": 5,
-      "unlock": 3
+      "subscription": 41,
+      "listing": 6,
+      "unlock": 4
     }
   },
   "itemCoverage": {
     "offerPrice": 953,
-    "listingDate": 902,
+    "listingDate": 903,
     "subscriptionStart": 30,
     "underwriters": 329,
     "currentPrice": 745,
@@ -24,14 +24,14 @@
     "lockupCommitmentRatio": 105,
     "existingShareholderRatio": 0,
     "ma20": 193,
-    "ma60": 181,
+    "ma60": 182,
     "rsi14": 186,
     "signal": 193
   },
-  "listedItems": 902,
-  "listedItemsWithSymbol": 755,
+  "listedItems": 903,
+  "listedItemsWithSymbol": 756,
   "eventTypeCounts": {
-    "listing": 902,
+    "listing": 903,
     "unlock_15d": 292,
     "unlock_1m": 290,
     "unlock_3m": 288,
@@ -41,9 +41,9 @@
     "subscription_end": 30
   },
   "cacheRows": {
-    "dart_corp_codes": 119606,
+    "dart_corp_codes": 119614,
     "ir_38_live": 1,
-    "kind_corp_download_live": 2754,
+    "kind_corp_download_live": 2753,
     "kind_listing_live": 0,
     "kind_public_offering_live": 0,
     "kind_pubprice_live": 0,

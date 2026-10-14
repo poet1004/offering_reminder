@@ -1,6 +1,6 @@
 {
   "ok": true,
-  "generatedAt": "2026-10-13T03:21:26.062914+00:00",
+  "generatedAt": "2026-10-14T01:31:05.644433+00:00",
   "serviceKeyConfigured": true,
   "refreshReturnCode": 0,
   "refreshSucceeded": true,
@@ -16,7 +16,7 @@
   },
   "rawReport": {
     "ok": true,
-    "saved_at": "2026-10-13T00:00:00",
+    "saved_at": "2026-10-14T00:00:00",
     "warnings": [
       "KRX listed info refresh returned zero rows"
     ],
@@ -26,44 +26,44 @@
       "rows": 0,
       "attempts": [
         {
+          "basDt": "20261014",
+          "ok": false,
+          "error": "HTTPSConnectionPool(host='apis.data.go.kr', port=443): Max retries exceeded with url: /1160100/service/GetKrxListedInfoService/getItemInfo?serviceKey=4344393cd8b52efbda50379ba1a98afa85ab94b28f93f998d3de23d8f5700488&numOfRows=4000&pageNo=1&resultType=json&basDt=20261014 (Caused by ConnectTimeoutError(<HTTPSConnection(host='apis.data.go.kr', port=443) at 0x7f874a4a46d0>, 'Connection to apis.data.go.kr timed out. (connect timeout=20)'))"
+        },
+        {
           "basDt": "20261013",
           "ok": false,
-          "error": "HTTPSConnectionPool(host='apis.data.go.kr', port=443): Max retries exceeded with url: /1160100/service/GetKrxListedInfoService/getItemInfo?serviceKey=4344393cd8b52efbda50379ba1a98afa85ab94b28f93f998d3de23d8f5700488&numOfRows=4000&pageNo=1&resultType=json&basDt=20261013 (Caused by ConnectTimeoutError(<HTTPSConnection(host='apis.data.go.kr', port=443) at 0x7f3cf9896d90>, 'Connection to apis.data.go.kr timed out. (connect timeout=20)'))"
+          "error": "HTTPSConnectionPool(host='apis.data.go.kr', port=443): Max retries exceeded with url: /1160100/service/GetKrxListedInfoService/getItemInfo?serviceKey=4344393cd8b52efbda50379ba1a98afa85ab94b28f93f998d3de23d8f5700488&numOfRows=4000&pageNo=1&resultType=json&basDt=20261013 (Caused by ConnectTimeoutError(<HTTPSConnection(host='apis.data.go.kr', port=443) at 0x7f874a316dd0>, 'Connection to apis.data.go.kr timed out. (connect timeout=20)'))"
         },
         {
           "basDt": "20261012",
           "ok": false,
-          "error": "HTTPSConnectionPool(host='apis.data.go.kr', port=443): Max retries exceeded with url: /1160100/service/GetKrxListedInfoService/getItemInfo?serviceKey=4344393cd8b52efbda50379ba1a98afa85ab94b28f93f998d3de23d8f5700488&numOfRows=4000&pageNo=1&resultType=json&basDt=20261012 (Caused by ConnectTimeoutError(<HTTPSConnection(host='apis.data.go.kr', port=443) at 0x7f3cf9895410>, 'Connection to apis.data.go.kr timed out. (connect timeout=20)'))"
+          "error": "HTTPSConnectionPool(host='apis.data.go.kr', port=443): Max retries exceeded with url: /1160100/service/GetKrxListedInfoService/getItemInfo?serviceKey=4344393cd8b52efbda50379ba1a98afa85ab94b28f93f998d3de23d8f5700488&numOfRows=4000&pageNo=1&resultType=json&basDt=20261012 (Caused by ConnectTimeoutError(<HTTPSConnection(host='apis.data.go.kr', port=443) at 0x7f874a317350>, 'Connection to apis.data.go.kr timed out. (connect timeout=20)'))"
         },
         {
           "basDt": "20261011",
           "ok": false,
-          "error": "HTTPSConnectionPool(host='apis.data.go.kr', port=443): Max retries exceeded with url: /1160100/service/GetKrxListedInfoService/getItemInfo?serviceKey=4344393cd8b52efbda50379ba1a98afa85ab94b28f93f998d3de23d8f5700488&numOfRows=4000&pageNo=1&resultType=json&basDt=20261011 (Caused by ConnectTimeoutError(<HTTPSConnection(host='apis.data.go.kr', port=443) at 0x7f3cfaafc850>, 'Connection to apis.data.go.kr timed out. (connect timeout=20)'))"
+          "error": "HTTPSConnectionPool(host='apis.data.go.kr', port=443): Max retries exceeded with url: /1160100/service/GetKrxListedInfoService/getItemInfo?serviceKey=4344393cd8b52efbda50379ba1a98afa85ab94b28f93f998d3de23d8f5700488&numOfRows=4000&pageNo=1&resultType=json&basDt=20261011 (Caused by ConnectTimeoutError(<HTTPSConnection(host='apis.data.go.kr', port=443) at 0x7f874a316a50>, 'Connection to apis.data.go.kr timed out. (connect timeout=20)'))"
         },
         {
           "basDt": "20261010",
           "ok": false,
-          "error": "HTTPSConnectionPool(host='apis.data.go.kr', port=443): Max retries exceeded with url: /1160100/service/GetKrxListedInfoService/getItemInfo?serviceKey=4344393cd8b52efbda50379ba1a98afa85ab94b28f93f998d3de23d8f5700488&numOfRows=4000&pageNo=1&resultType=json&basDt=20261010 (Caused by ConnectTimeoutError(<HTTPSConnection(host='apis.data.go.kr', port=443) at 0x7f3cfaafe550>, 'Connection to apis.data.go.kr timed out. (connect timeout=20)'))"
+          "error": "HTTPSConnectionPool(host='apis.data.go.kr', port=443): Max retries exceeded with url: /1160100/service/GetKrxListedInfoService/getItemInfo?serviceKey=4344393cd8b52efbda50379ba1a98afa85ab94b28f93f998d3de23d8f5700488&numOfRows=4000&pageNo=1&resultType=json&basDt=20261010 (Caused by ConnectTimeoutError(<HTTPSConnection(host='apis.data.go.kr', port=443) at 0x7f87518b3c90>, 'Connection to apis.data.go.kr timed out. (connect timeout=20)'))"
         },
         {
           "basDt": "20261009",
           "ok": false,
-          "error": "HTTPSConnectionPool(host='apis.data.go.kr', port=443): Max retries exceeded with url: /1160100/service/GetKrxListedInfoService/getItemInfo?serviceKey=4344393cd8b52efbda50379ba1a98afa85ab94b28f93f998d3de23d8f5700488&numOfRows=4000&pageNo=1&resultType=json&basDt=20261009 (Caused by ConnectTimeoutError(<HTTPSConnection(host='apis.data.go.kr', port=443) at 0x7f3cf9764bd0>, 'Connection to apis.data.go.kr timed out. (connect timeout=20)'))"
+          "error": "HTTPSConnectionPool(host='apis.data.go.kr', port=443): Max retries exceeded with url: /1160100/service/GetKrxListedInfoService/getItemInfo?serviceKey=4344393cd8b52efbda50379ba1a98afa85ab94b28f93f998d3de23d8f5700488&numOfRows=4000&pageNo=1&resultType=json&basDt=20261009 (Caused by ConnectTimeoutError(<HTTPSConnection(host='apis.data.go.kr', port=443) at 0x7f874a317f50>, 'Connection to apis.data.go.kr timed out. (connect timeout=20)'))"
         },
         {
           "basDt": "20261008",
           "ok": false,
-          "error": "HTTPSConnectionPool(host='apis.data.go.kr', port=443): Max retries exceeded with url: /1160100/service/GetKrxListedInfoService/getItemInfo?serviceKey=4344393cd8b52efbda50379ba1a98afa85ab94b28f93f998d3de23d8f5700488&numOfRows=4000&pageNo=1&resultType=json&basDt=20261008 (Caused by ConnectTimeoutError(<HTTPSConnection(host='apis.data.go.kr', port=443) at 0x7f3cfaafcc50>, 'Connection to apis.data.go.kr timed out. (connect timeout=20)'))"
+          "error": "HTTPSConnectionPool(host='apis.data.go.kr', port=443): Max retries exceeded with url: /1160100/service/GetKrxListedInfoService/getItemInfo?serviceKey=4344393cd8b52efbda50379ba1a98afa85ab94b28f93f998d3de23d8f5700488&numOfRows=4000&pageNo=1&resultType=json&basDt=20261008 (Caused by ConnectTimeoutError(<HTTPSConnection(host='apis.data.go.kr', port=443) at 0x7f874a3160d0>, 'Connection to apis.data.go.kr timed out. (connect timeout=20)'))"
         },
         {
           "basDt": "20261007",
           "ok": false,
-          "error": "HTTPSConnectionPool(host='apis.data.go.kr', port=443): Max retries exceeded with url: /1160100/service/GetKrxListedInfoService/getItemInfo?serviceKey=4344393cd8b52efbda50379ba1a98afa85ab94b28f93f998d3de23d8f5700488&numOfRows=4000&pageNo=1&resultType=json&basDt=20261007 (Caused by ConnectTimeoutError(<HTTPSConnection(host='apis.data.go.kr', port=443) at 0x7f3d060ad450>, 'Connection to apis.data.go.kr timed out. (connect timeout=20)'))"
-        },
-        {
-          "basDt": "20261006",
-          "ok": false,
-          "error": "HTTPSConnectionPool(host='apis.data.go.kr', port=443): Max retries exceeded with url: /1160100/service/GetKrxListedInfoService/getItemInfo?serviceKey=4344393cd8b52efbda50379ba1a98afa85ab94b28f93f998d3de23d8f5700488&numOfRows=4000&pageNo=1&resultType=json&basDt=20261006 (Caused by ConnectTimeoutError(<HTTPSConnection(host='apis.data.go.kr', port=443) at 0x7f3cf9895bd0>, 'Connection to apis.data.go.kr timed out. (connect timeout=20)'))"
+          "error": "HTTPSConnectionPool(host='apis.data.go.kr', port=443): Max retries exceeded with url: /1160100/service/GetKrxListedInfoService/getItemInfo?serviceKey=4344393cd8b52efbda50379ba1a98afa85ab94b28f93f998d3de23d8f5700488&numOfRows=4000&pageNo=1&resultType=json&basDt=20261007 (Caused by ConnectTimeoutError(<HTTPSConnection(host='apis.data.go.kr', port=443) at 0x7f874a4a7b50>, 'Connection to apis.data.go.kr timed out. (connect timeout=20)'))"
         }
       ]
     },
