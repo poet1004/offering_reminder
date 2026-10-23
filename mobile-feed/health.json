@@ -1,14 +1,14 @@
 {
   "status": "ok",
-  "generatedAt": "2026-10-22T01:06:56.584744+00:00",
-  "upstreamUpdatedAt": "2026-10-22T00:00:00",
+  "generatedAt": "2026-10-23T01:01:53.787512+00:00",
+  "upstreamUpdatedAt": "2026-10-23T00:00:00",
   "summary": {
-    "itemCount": 1065,
-    "eventCount": 2417,
+    "itemCount": 1068,
+    "eventCount": 2426,
     "marketCount": 9,
     "next30d": {
-      "subscription": 37,
-      "listing": 9,
+      "subscription": 35,
+      "listing": 11,
       "unlock": 11
     }
   },
