@@ -1,37 +1,37 @@
 {
   "ok": false,
-  "generatedAt": "2026-10-24T01:11:54.602365+00:00",
-  "upstreamUpdatedAt": "2026-10-24T00:00:00",
+  "generatedAt": "2026-10-27T01:59:36.872830+00:00",
+  "upstreamUpdatedAt": "2026-10-27T00:00:00",
   "schemaVersion": 3,
   "summary": {
-    "itemCount": 1070,
-    "eventCount": 2426,
+    "itemCount": 1073,
+    "eventCount": 2428,
     "marketCount": 9,
     "next30d": {
-      "subscription": 33,
-      "listing": 9,
-      "unlock": 11
+      "subscription": 35,
+      "listing": 10,
+      "unlock": 13
     }
   },
   "itemCoverage": {
     "offerPrice": 964,
-    "listingDate": 914,
+    "listingDate": 916,
     "subscriptionStart": 30,
-    "underwriters": 335,
+    "underwriters": 336,
     "currentPrice": 752,
     "returnPct": 667,
     "institutionalCompetitionRatio": 120,
     "lockupCommitmentRatio": 105,
     "existingShareholderRatio": 0,
-    "ma20": 196,
+    "ma20": 197,
     "ma60": 186,
-    "rsi14": 189,
-    "signal": 196
+    "rsi14": 190,
+    "signal": 197
   },
-  "listedItems": 914,
-  "listedItemsWithSymbol": 766,
+  "listedItems": 916,
+  "listedItemsWithSymbol": 767,
   "eventTypeCounts": {
-    "listing": 914,
+    "listing": 916,
     "unlock_15d": 293,
     "unlock_1m": 291,
     "unlock_3m": 289,
@@ -41,24 +41,24 @@
     "subscription_end": 30
   },
   "cacheRows": {
-    "dart_corp_codes": 119737,
+    "dart_corp_codes": 119778,
     "ir_38_live": 1,
-    "kind_corp_download_live": 2756,
+    "kind_corp_download_live": 2758,
     "kind_listing_live": 0,
     "kind_public_offering_live": 0,
     "kind_pubprice_live": 0,
     "market_snapshot_diag_latest": 15,
     "market_snapshot_last_success": 9,
-    "official_issue_overlay_live": 287006,
-    "official_krx_listed_info_live": 287006,
-    "official_ksd_market_codes_live": 5511,
-    "official_ksd_name_lookup_live": 5511,
+    "official_issue_overlay_live": 289693,
+    "official_krx_listed_info_live": 289693,
+    "official_ksd_market_codes_live": 5512,
+    "official_ksd_name_lookup_live": 5512,
     "public_quotes_latest": 780,
-    "public_technical_latest": 195,
+    "public_technical_latest": 196,
     "schedule_38_demand_live": 120,
     "schedule_38_live": 30,
     "schedule_38_new_listing_live": 84,
-    "seibro_release_live": 45
+    "seibro_release_live": 52
   },
   "warnings": [
     "kind_listing_live rows=0",
