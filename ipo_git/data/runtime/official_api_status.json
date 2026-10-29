@@ -1,6 +1,6 @@
 {
   "ok": true,
-  "generatedAt": "2026-10-28T01:36:20.175053+00:00",
+  "generatedAt": "2026-10-29T02:00:18.692534+00:00",
   "serviceKeyConfigured": true,
   "refreshReturnCode": 0,
   "refreshSucceeded": true,
@@ -16,35 +16,28 @@
   },
   "rawReport": {
     "ok": true,
-    "saved_at": "2026-10-28T00:00:00",
+    "saved_at": "2026-10-29T00:00:00",
     "warnings": [],
     "candidate_issues": 80,
     "krx_probe": {
       "ok": true,
-      "basDt": "20261026",
-      "totalCount": 2756,
+      "basDt": "20261028",
+      "totalCount": 2757,
       "rows": 2687,
       "attempts": [
         {
+          "basDt": "20261029",
+          "ok": false,
+          "resultCode": "00",
+          "resultMsg": "NORMAL SERVICE.",
+          "totalCount": 0
+        },
+        {
           "basDt": "20261028",
-          "ok": false,
-          "resultCode": "00",
-          "resultMsg": "NORMAL SERVICE.",
-          "totalCount": 0
-        },
-        {
-          "basDt": "20261027",
-          "ok": false,
-          "resultCode": "00",
-          "resultMsg": "NORMAL SERVICE.",
-          "totalCount": 0
-        },
-        {
-          "basDt": "20261026",
           "ok": true,
           "resultCode": "00",
           "resultMsg": "NORMAL SERVICE.",
-          "totalCount": 2756
+          "totalCount": 2757
         }
       ]
     },
